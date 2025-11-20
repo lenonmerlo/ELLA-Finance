@@ -42,13 +42,16 @@ public class UserService {
             throw new RuntimeException("E-mail já cadastrado");
         }
 
+        // Campos de User
         existing.setEmail(data.getEmail());
+        existing.setRole(data.getRole());
+
+        // Campos herdados de Person (mas o Lombok gera os getters/setters normalmente)
         existing.setName(data.getName());
         existing.setPhone(data.getPhone());
         existing.setBirthDate(data.getBirthDate());
         existing.setAddress(data.getAddress());
         existing.setIncome(data.getIncome());
-        existing.setRole(data.getRole());
         existing.setStatus(data.getStatus());
         existing.setLanguage(data.getLanguage());
         existing.setCurrency(data.getCurrency());

@@ -24,7 +24,7 @@ public class UserController {
     @GetMapping
     public List<User> listAll() {
         List<User> users = userService.findAll();
-        users.forEach(u -> u.setPassword(null));
+        users.forEach(u -> u.setPassword(null)); // não expor senha
         return users;
     }
 
@@ -38,7 +38,6 @@ public class UserController {
     @PostMapping
     public ResponseEntity<User> create(@RequestBody User user) {
         User created = userService.create(user);
-        // ⚠️ depois vamos trocar pra DTO pra não devolver a senha
         created.setPassword(null);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
