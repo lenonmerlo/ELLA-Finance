@@ -1,4 +1,7 @@
 package com.ella.backend.exceptions;
 
-public class BadRequestException {
+public class BadRequestException extends RuntimeException {
+    public BadRequestException(String message) {
+        super(message);
+    }
 }
