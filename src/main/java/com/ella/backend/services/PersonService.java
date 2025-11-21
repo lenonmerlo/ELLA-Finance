@@ -1,6 +1,7 @@
 package com.ella.backend.services;
 
 import com.ella.backend.entities.Person;
+import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.PersonRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,18 +20,17 @@ public class PersonService {
 
     public Person findById(String id) {
         return personRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Pessoa não encontrada"));
+                .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
     }
 
     public Person create(Person person) {
-        // TODO: Implementar validações aqui.
+        // aqui adicionar validações de negócio
         return personRepository.save(person);
     }
 
     public Person update(String id, Person data) {
         Person existing = findById(id);
 
-        // Atualizamos somente os campos editáveis
         existing.setName(data.getName());
         existing.setPhone(data.getPhone());
         existing.setBirthDate(data.getBirthDate());
@@ -39,6 +39,7 @@ public class PersonService {
         existing.setLanguage(data.getLanguage());
         existing.setCurrency(data.getCurrency());
         existing.setPlan(data.getPlan());
+        existing.setStatus(data.getStatus());
 
         return personRepository.save(existing);
     }

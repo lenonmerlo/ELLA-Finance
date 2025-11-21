@@ -15,8 +15,8 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "persons")
-@Data
 @Inheritance(strategy = InheritanceType.JOINED)
+@Data
 public class Person {
 
     @Id
