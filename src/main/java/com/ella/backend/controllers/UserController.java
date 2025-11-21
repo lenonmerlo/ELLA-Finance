@@ -1,12 +1,17 @@
 package com.ella.backend.controllers;
 
+import com.ella.backend.dto.ApiResponse;
+import com.ella.backend.dto.UserRequestDTO;
+import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
+import com.ella.backend.mappers.UserMapper;
 import com.ella.backend.services.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 
 @RestController
@@ -22,37 +27,81 @@ public class UserController {
     }
 
     @GetMapping
-    public List<User> listAll() {
+    public ResponseEntity<ApiResponse<List<UserResponseDTO>>> listAll() {
         List<User> users = userService.findAll();
-        users.forEach(u -> u.setPassword(null)); // não expor senha
-        return users;
+        List<UserResponseDTO> dtos = users.stream()
+                .map(UserMapper::toResponseDTO)
+                .toList();
+
+        ApiResponse<List<UserResponseDTO>> body = ApiResponse.<List<UserResponseDTO>>builder()
+                .success(true)
+                .data(dtos)
+                .message("Usuários listados com sucesso")
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.ok(body);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<User> findById(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<UserResponseDTO>> findById(@PathVariable String id) {
         User user = userService.findById(id);
-        user.setPassword(null);
-        return ResponseEntity.ok(user);
+        UserResponseDTO dto = UserMapper.toResponseDTO(user);
+
+        ApiResponse<UserResponseDTO> body = ApiResponse.<UserResponseDTO>builder()
+                .success(true)
+                .data(dto)
+                .message("Usuário encontrado")
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping
-    public ResponseEntity<User> create(@RequestBody User user) {
-        User created = userService.create(user);
-        created.setPassword(null);
-        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    public ResponseEntity<ApiResponse<UserResponseDTO>> create(@RequestBody UserRequestDTO request) {
+        User entity = UserMapper.toEntity(request);
+        User created = userService.create(entity);
+        UserResponseDTO dto = UserMapper.toResponseDTO(created);
+
+        ApiResponse<UserResponseDTO> body = ApiResponse.<UserResponseDTO>builder()
+                .success(true)
+                .data(dto)
+                .message("Usuário criado com sucesso")
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(body);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<User> update(@PathVariable String id,
-                                       @RequestBody User user) {
-        User updated = userService.update(id, user);
-        updated.setPassword(null);
-        return ResponseEntity.ok(updated);
+    public ResponseEntity<ApiResponse<UserResponseDTO>> update(@PathVariable String id,
+                                                               @RequestBody UserRequestDTO request) {
+        User entity = UserMapper.toEntity(request);
+        User updated = userService.update(id, entity);
+        UserResponseDTO dto = UserMapper.toResponseDTO(updated);
+
+        ApiResponse<UserResponseDTO> body = ApiResponse.<UserResponseDTO>builder()
+                .success(true)
+                .data(dto)
+                .message("Usuário atualizado com sucesso")
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.ok(body);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         userService.delete(id);
-        return ResponseEntity.noContent().build();
+
+        ApiResponse<Void> body = ApiResponse.<Void>builder()
+                .success(true)
+                .data(null)
+                .message("Usuário deletado com sucesso")
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).body(body);
     }
 }

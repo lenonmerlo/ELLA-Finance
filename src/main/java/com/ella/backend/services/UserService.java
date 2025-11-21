@@ -1,6 +1,8 @@
 package com.ella.backend.services;
 
 import com.ella.backend.entities.User;
+import com.ella.backend.exceptions.ConflictException;
+import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,14 +23,18 @@ public class UserService {
 
     public User findById(String id) {
         return userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Usuário não encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Usuário não encontrado"));
+    }
+
+    public User findByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuário não encontrado com este e-mail"));
     }
 
     public User create(User user) {
         if (userRepository.existsByEmail(user.getEmail())) {
-            throw new RuntimeException("E-mail já cadastrado");
+            throw new ConflictException("E-mail já cadastrado");
         }
-
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         return userRepository.save(user);
     }

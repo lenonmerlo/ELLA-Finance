@@ -1,13 +1,13 @@
 package com.ella.backend.entities;
 
-import com.ella.backend.enums.*;
+import com.ella.backend.enums.Role;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-
 @Entity
 @Table(name = "users")
+@PrimaryKeyJoinColumn(name = "person_id")
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class User extends Person {
