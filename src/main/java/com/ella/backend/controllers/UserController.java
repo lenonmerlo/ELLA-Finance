@@ -9,6 +9,7 @@ import com.ella.backend.services.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -27,6 +28,7 @@ public class UserController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<UserResponseDTO>>> listAll() {
         List<User> users = userService.findAll();
         List<UserResponseDTO> dtos = users.stream()
@@ -44,6 +46,7 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
     public ResponseEntity<ApiResponse<UserResponseDTO>> findById(@PathVariable String id) {
         User user = userService.findById(id);
         UserResponseDTO dto = UserMapper.toResponseDTO(user);
@@ -75,6 +78,7 @@ public class UserController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
     public ResponseEntity<ApiResponse<UserResponseDTO>> update(@PathVariable String id,
                                                                @RequestBody UserRequestDTO request) {
         User entity = UserMapper.toEntity(request);
@@ -92,6 +96,7 @@ public class UserController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         userService.delete(id);
 

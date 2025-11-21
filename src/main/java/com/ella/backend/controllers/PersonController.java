@@ -9,6 +9,7 @@ import com.ella.backend.services.PersonService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -27,6 +28,7 @@ public class PersonController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<PersonResponseDTO>>> listAll() {
         List<Person> persons = personService.findAll();
         List<PersonResponseDTO> dtos = persons.stream()
@@ -44,6 +46,7 @@ public class PersonController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
     public ResponseEntity<ApiResponse<PersonResponseDTO>> findById(@PathVariable String id) {
         Person person = personService.findById(id);
         PersonResponseDTO dto = PersonMapper.toResponseDTO(person);
@@ -59,6 +62,7 @@ public class PersonController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<PersonResponseDTO>> create(@RequestBody PersonRequestDTO request) {
         Person entity = PersonMapper.toEntity(request);
         Person created = personService.create(entity);
@@ -75,6 +79,7 @@ public class PersonController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
     public ResponseEntity<ApiResponse<PersonResponseDTO>> update(@PathVariable String id,
                                                                  @RequestBody PersonRequestDTO request) {
         Person entity = PersonMapper.toEntity(request);
@@ -92,6 +97,7 @@ public class PersonController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         personService.delete(id);
 
