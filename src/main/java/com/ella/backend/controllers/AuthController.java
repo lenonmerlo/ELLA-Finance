@@ -13,7 +13,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 
 @RestController
@@ -46,7 +45,7 @@ public class AuthController {
                 .success(true)
                 .data(authResponse)
                 .message("Login realizado com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.status(HttpStatus.OK).body(body);

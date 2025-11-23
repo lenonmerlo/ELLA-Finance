@@ -40,7 +40,7 @@ public class PersonController {
                 .success(true)
                 .data(dtos)
                 .message("Pessoas listadas com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.ok(body);
@@ -56,7 +56,7 @@ public class PersonController {
                 .success(true)
                 .data(dto)
                 .message("Pessoa encontrada")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.ok(body);
@@ -73,7 +73,7 @@ public class PersonController {
                 .success(true)
                 .data(dto)
                 .message("Pessoa criada com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
@@ -91,7 +91,7 @@ public class PersonController {
                 .success(true)
                 .data(dto)
                 .message("Pessoa atualizada com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.ok(body);
@@ -106,7 +106,7 @@ public class PersonController {
                 .success(true)
                 .data(null)
                 .message("Pessoa deletada com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.status(HttpStatus.NO_CONTENT).body(body);

@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -40,7 +39,7 @@ public class UserController {
                 .success(true)
                 .data(dtos)
                 .message("Usuários listados com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.ok(body);
@@ -56,7 +55,7 @@ public class UserController {
                 .success(true)
                 .data(dto)
                 .message("Usuário encontrado")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.ok(body);
@@ -72,7 +71,7 @@ public class UserController {
                 .success(true)
                 .data(dto)
                 .message("Usuário criado com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
@@ -90,7 +89,7 @@ public class UserController {
                 .success(true)
                 .data(dto)
                 .message("Usuário atualizado com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.ok(body);
@@ -105,7 +104,7 @@ public class UserController {
                 .success(true)
                 .data(null)
                 .message("Usuário deletado com sucesso")
-                .timestamp(LocalDateTime.from(Instant.now()))
+                .timestamp(LocalDateTime.now())
                 .build();
 
         return ResponseEntity.status(HttpStatus.NO_CONTENT).body(body);

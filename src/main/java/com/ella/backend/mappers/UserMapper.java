@@ -5,6 +5,7 @@ import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
 
 import java.time.Instant;
+import java.time.ZoneId;
 
 public class UserMapper {
 
@@ -75,8 +76,8 @@ public class UserMapper {
         dto.setEmail(u.getEmail());
         dto.setRole(u.getRole());
 
-        dto.setCreatedAt(Instant.from(u.getCreatedAt()));
-        dto.setUpdatedAt(Instant.from(u.getUpdatedAt()));
+        dto.setCreatedAt(u.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant());
+        dto.setUpdatedAt(u.getUpdatedAt().atZone(ZoneId.systemDefault()).toInstant());
 
         return dto;
     }
