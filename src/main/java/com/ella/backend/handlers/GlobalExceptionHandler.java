@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -26,7 +27,7 @@ public class GlobalExceptionHandler {
         ApiResponse<T> body = ApiResponse.<T>builder()
                 .success(false)
                 .message(message)
-                .timestamp(Instant.now())
+                .timestamp(LocalDateTime.from(Instant.now()))
                 .errors(errors)
                 .build();
 

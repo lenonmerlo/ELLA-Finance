@@ -4,8 +4,8 @@ import com.ella.backend.enums.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 @Data
 public class UserResponseDTO {
@@ -27,6 +27,6 @@ public class UserResponseDTO {
     private String email;
     private Role role;
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private Instant createdAt;
+    private Instant updatedAt;
 }

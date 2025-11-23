@@ -13,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -39,7 +40,7 @@ public class PersonController {
                 .success(true)
                 .data(dtos)
                 .message("Pessoas listadas com sucesso")
-                .timestamp(Instant.now())
+                .timestamp(LocalDateTime.from(Instant.now()))
                 .build();
 
         return ResponseEntity.ok(body);
@@ -55,7 +56,7 @@ public class PersonController {
                 .success(true)
                 .data(dto)
                 .message("Pessoa encontrada")
-                .timestamp(Instant.now())
+                .timestamp(LocalDateTime.from(Instant.now()))
                 .build();
 
         return ResponseEntity.ok(body);
@@ -72,7 +73,7 @@ public class PersonController {
                 .success(true)
                 .data(dto)
                 .message("Pessoa criada com sucesso")
-                .timestamp(Instant.now())
+                .timestamp(LocalDateTime.from(Instant.now()))
                 .build();
 
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
@@ -90,7 +91,7 @@ public class PersonController {
                 .success(true)
                 .data(dto)
                 .message("Pessoa atualizada com sucesso")
-                .timestamp(Instant.now())
+                .timestamp(LocalDateTime.from(Instant.now()))
                 .build();
 
         return ResponseEntity.ok(body);
@@ -105,7 +106,7 @@ public class PersonController {
                 .success(true)
                 .data(null)
                 .message("Pessoa deletada com sucesso")
-                .timestamp(Instant.now())
+                .timestamp(LocalDateTime.from(Instant.now()))
                 .build();
 
         return ResponseEntity.status(HttpStatus.NO_CONTENT).body(body);

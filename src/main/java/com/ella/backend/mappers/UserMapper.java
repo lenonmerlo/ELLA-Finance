@@ -4,6 +4,8 @@ import com.ella.backend.dto.UserRequestDTO;
 import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
 
+import java.time.Instant;
+
 public class UserMapper {
 
     private UserMapper() {
@@ -73,8 +75,8 @@ public class UserMapper {
         dto.setEmail(u.getEmail());
         dto.setRole(u.getRole());
 
-        dto.setCreatedAt(u.getCreatedAt());
-        dto.setUpdatedAt(u.getUpdatedAt());
+        dto.setCreatedAt(Instant.from(u.getCreatedAt()));
+        dto.setUpdatedAt(Instant.from(u.getUpdatedAt()));
 
         return dto;
     }

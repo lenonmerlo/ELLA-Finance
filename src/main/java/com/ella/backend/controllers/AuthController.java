@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -45,7 +46,7 @@ public class AuthController {
                 .success(true)
                 .data(authResponse)
                 .message("Login realizado com sucesso")
-                .timestamp(Instant.now())
+                .timestamp(LocalDateTime.from(Instant.now()))
                 .build();
 
         return ResponseEntity.status(HttpStatus.OK).body(body);
