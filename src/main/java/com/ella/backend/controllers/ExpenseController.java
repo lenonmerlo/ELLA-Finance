@@ -1,0 +1,83 @@
+// src/main/java/com/ella/backend/controllers/ExpenseController.java
+// Rota: /api/expenses
+package com.ella.backend.controllers;
+
+import com.ella.backend.dto.ApiResponse;
+import com.ella.backend.dto.ExpenseRequestDTO;
+import com.ella.backend.dto.ExpenseResponseDTO;
+import com.ella.backend.services.ExpenseService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/expenses")
+@RequiredArgsConstructor
+public class ExpenseController {
+
+    private final ExpenseService expenseService;
+
+    @PostMapping
+    public ResponseEntity<ApiResponse<ExpenseResponseDTO>> create(
+            @Valid @RequestBody ExpenseRequestDTO dto
+    ) {
+        ExpenseResponseDTO created = expenseService.create(dto);
+        return ResponseEntity
+                .status(201)
+                .body(ApiResponse.success(created, "Despesa criada com sucesso"));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<ExpenseResponseDTO>> findById(@PathVariable String id) {
+        ExpenseResponseDTO found = expenseService.findById(id);
+        return ResponseEntity.ok(
+                ApiResponse.success(found, "Despesa encontrada")
+        );
+    }
+
+    @GetMapping("/person/{personId}")
+    public ResponseEntity<ApiResponse<List<ExpenseResponseDTO>>> findByPerson(
+            @PathVariable String personId
+    ) {
+        List<ExpenseResponseDTO> list = expenseService.findByPerson(personId);
+        return ResponseEntity.ok(
+                ApiResponse.success(list, "Despesas encontradas")
+        );
+    }
+
+    @GetMapping("/person/{personId}/period")
+    public ResponseEntity<ApiResponse<List<ExpenseResponseDTO>>> findByPersonAndPeriod(
+            @PathVariable String personId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end
+    ) {
+        List<ExpenseResponseDTO> list = expenseService.findByPersonAndPeriod(personId, start, end);
+        return ResponseEntity.ok(
+                ApiResponse.success(list, "Despesas encontradas")
+        );
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ApiResponse<ExpenseResponseDTO>> update(
+            @PathVariable String id,
+            @Valid @RequestBody ExpenseRequestDTO dto
+    ) {
+        ExpenseResponseDTO updated = expenseService.update(id, dto);
+        return ResponseEntity.ok(
+                ApiResponse.success(updated, "Despesa atualizada com sucesso")
+        );
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
+        expenseService.delete(id);
+        return ResponseEntity.ok(
+                ApiResponse.success(null, "Despesa removida com sucesso")
+        );
+    }
+}

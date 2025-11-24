@@ -1,7 +1,8 @@
+// src/main/java/com/ella/backend/services/ExpenseService.java
 package com.ella.backend.services;
 
-import com.ella.backend.dto.IncomeRequestDTO;
-import com.ella.backend.dto.IncomeResponseDTO;
+import com.ella.backend.dto.ExpenseRequestDTO;
+import com.ella.backend.dto.ExpenseResponseDTO;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
 import com.ella.backend.enums.TransactionType;
@@ -18,13 +19,13 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class IncomeService {
+public class ExpenseService {
 
     private final FinancialTransactionRepository transactionRepository;
     private final PersonRepository personRepository;
 
     @Transactional
-    public IncomeResponseDTO create(IncomeRequestDTO dto) {
+    public ExpenseResponseDTO create(ExpenseRequestDTO dto) {
         UUID personUuid = UUID.fromString(dto.getPersonId());
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
@@ -33,7 +34,7 @@ public class IncomeService {
                 .person(person)
                 .description(dto.getDescription())
                 .amount(dto.getAmount())
-                .type(TransactionType.INCOME)
+                .type(TransactionType.EXPENSE)      // 👈 sempre despesa
                 .category(dto.getCategory())
                 .transactionDate(dto.getTransactionDate())
                 .dueDate(dto.getDueDate())
@@ -45,18 +46,20 @@ public class IncomeService {
         return toDTO(entity);
     }
 
-    public IncomeResponseDTO findById(String id) {
+    public ExpenseResponseDTO findById(String id) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
-                .orElseThrow(() -> new ResourceNotFoundException("Receita não encontrada"));
 
-        if (entity.getType() != TransactionType.INCOME) {
-            throw new ResourceNotFoundException("Receita não encontrada");
+        FinancialTransaction entity = transactionRepository.findById(uuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Despesa não encontrada"));
+
+        if (entity.getType() != TransactionType.EXPENSE) {
+            throw new ResourceNotFoundException("Despesa não encontrada");
         }
+
         return toDTO(entity);
     }
 
-    public List<IncomeResponseDTO> findByPerson(String personId) {
+    public List<ExpenseResponseDTO> findByPerson(String personId) {
         UUID personUuid = UUID.fromString(personId);
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
@@ -64,12 +67,12 @@ public class IncomeService {
         List<FinancialTransaction> list = transactionRepository.findByPerson(person);
 
         return list.stream()
-                .filter(tx -> tx.getType() == TransactionType.INCOME)
+                .filter(tx -> tx.getType() == TransactionType.EXPENSE)
                 .map(this::toDTO)
                 .toList();
     }
 
-    public List<IncomeResponseDTO> findByPersonAndPeriod(String personId, LocalDate start, LocalDate end) {
+    public List<ExpenseResponseDTO> findByPersonAndPeriod(String personId, LocalDate start, LocalDate end) {
         UUID personUuid = UUID.fromString(personId);
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
@@ -78,19 +81,20 @@ public class IncomeService {
                 .findByPersonAndTransactionDateBetween(person, start, end);
 
         return list.stream()
-                .filter(tx -> tx.getType() == TransactionType.INCOME)
+                .filter(tx -> tx.getType() == TransactionType.EXPENSE)
                 .map(this::toDTO)
                 .toList();
     }
 
     @Transactional
-    public IncomeResponseDTO update(String id, IncomeRequestDTO dto) {
+    public ExpenseResponseDTO update(String id, ExpenseRequestDTO dto) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
-                .orElseThrow(() -> new ResourceNotFoundException("Receita não encontrada"));
 
-        if (entity.getType() != TransactionType.INCOME) {
-            throw new ResourceNotFoundException("Receita não encontrada");
+        FinancialTransaction entity = transactionRepository.findById(uuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Despesa não encontrada"));
+
+        if (entity.getType() != TransactionType.EXPENSE) {
+            throw new ResourceNotFoundException("Despesa não encontrada");
         }
 
         UUID personUuid = UUID.fromString(dto.getPersonId());
@@ -113,22 +117,24 @@ public class IncomeService {
     @Transactional
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
-                .orElseThrow(() -> new ResourceNotFoundException("Receita não encontrada"));
 
-        if (entity.getType() != TransactionType.INCOME) {
-            throw new ResourceNotFoundException("Receita não encontrada");
+        FinancialTransaction entity = transactionRepository.findById(uuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Despesa não encontrada"));
+
+        if (entity.getType() != TransactionType.EXPENSE) {
+            throw new ResourceNotFoundException("Despesa não encontrada");
         }
 
         transactionRepository.delete(entity);
     }
 
-    private IncomeResponseDTO toDTO(FinancialTransaction entity) {
-        IncomeResponseDTO dto = new IncomeResponseDTO();
+    private ExpenseResponseDTO toDTO(FinancialTransaction entity) {
+        ExpenseResponseDTO dto = new ExpenseResponseDTO();
 
         dto.setId(entity.getId().toString());
         dto.setPersonId(entity.getPerson().getId().toString());
         dto.setPersonName(entity.getPerson().getName());
+
         dto.setDescription(entity.getDescription());
         dto.setAmount(entity.getAmount());
         dto.setCategory(entity.getCategory());
