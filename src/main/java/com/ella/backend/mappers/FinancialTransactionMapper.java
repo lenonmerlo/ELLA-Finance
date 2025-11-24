@@ -37,8 +37,8 @@ public class FinancialTransactionMapper {
 
     public static FinancialTransactionResponseDTO toResponseDTO(FinancialTransaction entity) {
         return new FinancialTransactionResponseDTO(
-                entity.getId(),
-                entity.getPerson().getId(),
+                entity.getId().toString(),
+                entity.getPerson().getId().toString(),
                 entity.getPerson().getName(),
                 entity.getDescription(),
                 entity.getAmount(),

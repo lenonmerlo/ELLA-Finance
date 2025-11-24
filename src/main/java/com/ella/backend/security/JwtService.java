@@ -28,10 +28,11 @@ public class JwtService {
 
     public String generateToken(User user) {
         return generateToken(Map.of(
-                "id", user.getId(),
+                "id", user.getId().toString(),
                 "role", user.getRole().name()
         ), user.getEmail());
     }
+
 
     private String generateToken(Map<String, Object> extraClaims, String subject) {
         Date now = new Date();

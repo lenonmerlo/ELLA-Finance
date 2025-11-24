@@ -59,7 +59,7 @@ public class UserMapper {
 
         UserResponseDTO dto = new UserResponseDTO();
 
-        dto.setId(u.getId());
+        dto.setId(u.getId().toString());
 
         // Person
         dto.setName(u.getName());

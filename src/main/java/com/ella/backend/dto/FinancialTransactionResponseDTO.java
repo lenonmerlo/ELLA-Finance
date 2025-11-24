@@ -8,7 +8,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public record FinancialTransactionResponseDTO(
-        java.util.UUID id,
+        String id,
         String personId,
         String personName,
         String description,

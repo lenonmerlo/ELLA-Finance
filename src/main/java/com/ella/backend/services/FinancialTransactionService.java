@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @Transactional
@@ -28,7 +29,8 @@ public class FinancialTransactionService {
     }
 
     public FinancialTransactionResponseDTO create(FinancialTransactionRequestDTO dto) {
-        Person person = personRepository.findById(dto.personId())
+        UUID personUuid = UUID.fromString(dto.personId());
+        Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
         FinancialTransaction entity = FinancialTransactionMapper.toEntity(dto, person);
@@ -39,7 +41,8 @@ public class FinancialTransactionService {
 
     @Transactional(readOnly = true)
     public FinancialTransactionResponseDTO findById(String id) {
-        FinancialTransaction entity = transactionRepository.findById(id)
+        UUID uuid = UUID.fromString(id);
+        FinancialTransaction entity = transactionRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         return FinancialTransactionMapper.toResponseDTO(entity);
@@ -47,7 +50,8 @@ public class FinancialTransactionService {
 
     @Transactional(readOnly = true)
     public List<FinancialTransactionResponseDTO> findByPerson(String personId) {
-        Person person = personRepository.findById(personId)
+        UUID personUuid = UUID.fromString(personId);
+        Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
         return transactionRepository.findByPerson(person)
@@ -58,7 +62,8 @@ public class FinancialTransactionService {
 
     @Transactional(readOnly = true)
     public List<FinancialTransactionResponseDTO> findByPersonAndPeriod(String personId, LocalDate start, LocalDate end) {
-        Person person = personRepository.findById(personId)
+        UUID personUuid = UUID.fromString(personId);
+        Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
         return transactionRepository.findByPersonAndTransactionDateBetween(person, start, end)
@@ -68,10 +73,12 @@ public class FinancialTransactionService {
     }
 
     public FinancialTransactionResponseDTO update(String id, FinancialTransactionRequestDTO dto) {
-        FinancialTransaction entity = transactionRepository.findById(id)
+        UUID uuid = UUID.fromString(id);
+        FinancialTransaction entity = transactionRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
-        Person person = personRepository.findById(dto.personId())
+        UUID personUuid = UUID.fromString(dto.personId());
+        Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
         FinancialTransactionMapper.updateEntity(entity, dto, person);
@@ -81,7 +88,8 @@ public class FinancialTransactionService {
     }
 
     public void delete(String id) {
-        FinancialTransaction entity = transactionRepository.findById(id)
+        UUID uuid = UUID.fromString(id);
+        FinancialTransaction entity = transactionRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         transactionRepository.delete(entity);

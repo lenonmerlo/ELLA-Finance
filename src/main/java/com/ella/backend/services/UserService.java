@@ -9,6 +9,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -22,7 +23,8 @@ public class UserService {
     }
 
     public User findById(String id) {
-        return userRepository.findById(id)
+        UUID uuid = UUID.fromString(id);
+        return userRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuário não encontrado"));
     }
 

@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -19,7 +20,8 @@ public class PersonService {
     }
 
     public Person findById(String id) {
-        return personRepository.findById(id)
+        UUID uuid = UUID.fromString(id);
+        return personRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
     }
 

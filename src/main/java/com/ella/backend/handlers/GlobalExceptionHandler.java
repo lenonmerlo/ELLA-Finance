@@ -79,4 +79,11 @@ public class GlobalExceptionHandler {
                 List.of(ex.getMessage())
         );
     }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("ID inválido: " + ex.getMessage()));
+    }
 }

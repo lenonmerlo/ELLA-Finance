@@ -42,7 +42,7 @@ public class PersonMapper {
 
         PersonResponseDTO dto = new PersonResponseDTO();
 
-        dto.setId(p.getId());
+        dto.setId(p.getId().toString());
         dto.setName(p.getName());
         dto.setPhone(p.getPhone());
         dto.setBirthDate(p.getBirthDate());
