@@ -1,6 +1,7 @@
 package com.ella.backend.dto;
 
 import com.ella.backend.enums.GoalStatus;
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -22,6 +23,7 @@ public class GoalRequestDTO {
     // opcional: se vier null, começa em 0
     private BigDecimal currentAmount;
 
+    @Future(message = "O prazo deve ser uma data futura")
     private LocalDate deadline;
 
     @NotBlank(message = "O ownerId é obrigatório")

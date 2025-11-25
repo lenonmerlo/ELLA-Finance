@@ -10,6 +10,7 @@ import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -24,6 +25,7 @@ public class IncomeService {
     private final PersonRepository personRepository;
 
     @Transactional
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public IncomeResponseDTO create(IncomeRequestDTO dto) {
         UUID personUuid = UUID.fromString(dto.getPersonId());
         Person person = personRepository.findById(personUuid)
@@ -84,6 +86,7 @@ public class IncomeService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public IncomeResponseDTO update(String id, IncomeRequestDTO dto) {
         UUID uuid = UUID.fromString(id);
         FinancialTransaction entity = transactionRepository.findById(uuid)
@@ -111,6 +114,7 @@ public class IncomeService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);
         FinancialTransaction entity = transactionRepository.findById(uuid)

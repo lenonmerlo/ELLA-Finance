@@ -6,6 +6,7 @@ import com.ella.backend.enums.InvoiceStatus;
 import com.ella.backend.enums.TransactionType;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.*;
+import org.springframework.cache.annotation.Cacheable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -45,6 +46,10 @@ public class DashboardService {
         return buildDashboard(request);
     }
 
+    @Cacheable(
+            cacheNames = "dashboard",
+            key = "#request.personId + '-' + #request.year + '-' + #request.month"
+    )
     public DashboardResponseDTO buildDashboard(DashboardRequestDTO request) {
         UUID personUuid = UUID.fromString(request.getPersonId());
         Person person = personRepository.findById(personUuid)

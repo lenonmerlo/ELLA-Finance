@@ -9,6 +9,7 @@ import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.PersonRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -22,6 +23,7 @@ public class GoalService {
     private final GoalRepository goalRepository;
     private final PersonRepository personRepository;
 
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public GoalResponseDTO create(GoalRequestDTO dto) {
         UUID ownerUuid = UUID.fromString(dto.getOwnerId());
         Person owner = personRepository.findById(ownerUuid)
@@ -73,6 +75,7 @@ public class GoalService {
                 .toList();
     }
 
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public GoalResponseDTO update(String id, GoalRequestDTO dto) {
         UUID uuid = UUID.fromString(id);
         Goal goal = goalRepository.findById(uuid)
@@ -103,6 +106,7 @@ public class GoalService {
         return toDTO(saved);
     }
 
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);
         Goal goal = goalRepository.findById(uuid)
