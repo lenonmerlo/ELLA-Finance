@@ -11,6 +11,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
+
 
 import java.time.LocalDate;
 import java.util.List;
@@ -41,13 +47,13 @@ public class ExpenseController {
     }
 
     @GetMapping("/person/{personId}")
-    public ResponseEntity<ApiResponse<List<ExpenseResponseDTO>>> findByPerson(
-            @PathVariable String personId
+    public ResponseEntity<ApiResponse<Page<ExpenseResponseDTO>>> findByPerson(
+            @PathVariable String personId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
     ) {
-        List<ExpenseResponseDTO> list = expenseService.findByPerson(personId);
-        return ResponseEntity.ok(
-                ApiResponse.success(list, "Despesas encontradas")
-        );
+        Page<ExpenseResponseDTO> result = expenseService.findByPersonPaginated(personId, page, size);
+        return ResponseEntity.ok(ApiResponse.success(result, "Despesas carregadas com sucesso"));
     }
 
     @GetMapping("/person/{personId}/period")

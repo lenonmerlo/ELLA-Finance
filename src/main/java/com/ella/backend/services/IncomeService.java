@@ -14,6 +14,11 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -90,6 +95,18 @@ public class IncomeService {
                 .toList();
     }
 
+    public Page<IncomeResponseDTO> findByPersonPaginated(String personId, int page, int size) {
+        UUID personUuid = UUID.fromString(personId);
+        Person person = personRepository.findById(personUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("transactionDate").descending());
+
+        return transactionRepository
+                .findByPersonAndType(person, TransactionType.INCOME, pageable)
+                .map(this::toDTO);
+    }
+
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public IncomeResponseDTO update(String id, IncomeRequestDTO dto) {
@@ -140,6 +157,14 @@ public class IncomeService {
         }
 
         LocalDate txDate = dto.getTransactionDate();
+        LocalDate paidDate = getLocalDate(dto, txDate);
+
+        if (paidDate != null && dto.getStatus() != TransactionStatus.PAID) {
+            throw new BadRequestException("Se a data de pagamento foi informada, o status deve ser PAID");
+        }
+    }
+
+    private static LocalDate getLocalDate(IncomeRequestDTO dto, LocalDate txDate) {
         LocalDate dueDate = dto.getDueDate();
         LocalDate paidDate = dto.getPaidDate();
 
@@ -154,10 +179,7 @@ public class IncomeService {
         if (dto.getStatus() == TransactionStatus.PAID && paidDate == null) {
             throw new BadRequestException("Receitas com status PAID devem ter a data de pagamento");
         }
-
-        if (paidDate != null && dto.getStatus() != TransactionStatus.PAID) {
-            throw new BadRequestException("Se a data de pagamento foi informada, o status deve ser PAID");
-        }
+        return paidDate;
     }
 
     private IncomeResponseDTO toDTO(FinancialTransaction entity) {

@@ -10,6 +10,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.time.LocalDate;
 
@@ -39,12 +44,13 @@ public class IncomeController {
     }
 
     @GetMapping("/person/{personId}")
-    public ResponseEntity<ApiResponse<List<IncomeResponseDTO>>> findByPerson(
-            @PathVariable String personId
+    public ResponseEntity<ApiResponse<Page<IncomeResponseDTO>>> findByPerson(
+            @PathVariable String personId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
     ) {
-        List<IncomeResponseDTO> list = incomeService.findByPerson(personId);
-
-        return ResponseEntity.ok(ApiResponse.success(list, "Receitas encontradas"));
+        Page<IncomeResponseDTO> result = incomeService.findByPersonPaginated(personId, page, size);
+        return ResponseEntity.ok(ApiResponse.success(result, "Receitas carregadas com sucesso"));
     }
 
     @GetMapping("/person/{personId}/period")

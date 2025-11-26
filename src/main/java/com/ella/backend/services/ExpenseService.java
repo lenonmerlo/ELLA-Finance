@@ -15,6 +15,11 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -91,6 +96,17 @@ public class ExpenseService {
                 .filter(tx -> tx.getType() == TransactionType.EXPENSE)
                 .map(this::toDTO)
                 .toList();
+    }
+    public Page<ExpenseResponseDTO> findByPersonPaginated(String personId, int page, int size) {
+        UUID personUuid = UUID.fromString(personId);
+        Person person = personRepository.findById(personUuid)
+                .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("transactionDate").descending());
+
+        return transactionRepository
+                .findByPersonAndType(person, TransactionType.EXPENSE, pageable)
+                .map(this::toDTO);
     }
 
     @Transactional
