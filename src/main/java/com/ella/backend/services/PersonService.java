@@ -1,11 +1,15 @@
 package com.ella.backend.services;
 
 import com.ella.backend.entities.Person;
+import com.ella.backend.enums.Status;
+import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.PersonRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,7 +30,8 @@ public class PersonService {
     }
 
     public Person create(Person person) {
-        // aqui adicionar validações de negócio
+        applyPersonDefaults(person);
+        validatePersonBusinessRules(person);
         return personRepository.save(person);
     }
 
@@ -43,11 +48,34 @@ public class PersonService {
         existing.setPlan(data.getPlan());
         existing.setStatus(data.getStatus());
 
+        applyPersonDefaults(existing);
+        validatePersonBusinessRules(existing);
+
         return personRepository.save(existing);
     }
 
     public void delete(String id) {
         Person existing = findById(id);
         personRepository.delete(existing);
+    }
+
+    private void applyPersonDefaults(Person person) {
+        if (person.getStatus() == null) {
+            person.setStatus(Status.ACTIVE);
+        }
+    }
+
+    private void validatePersonBusinessRules(Person person) {
+        if (person.getName() == null || person.getName().isBlank()) {
+            throw new BadRequestException("Nome é obrigatório");
+        }
+
+        if (person.getBirthDate() != null && person.getBirthDate().isAfter(LocalDate.now())) {
+            throw new BadRequestException("Data de nascimento não pode ser futura");
+        }
+
+        if (person.getIncome() != null && person.getIncome().compareTo(BigDecimal.ZERO) < 0) {
+            throw new BadRequestException("Renda não pode ser negativa");
+        }
     }
 }

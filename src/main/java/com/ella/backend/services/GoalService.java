@@ -5,6 +5,7 @@ import com.ella.backend.dto.GoalResponseDTO;
 import com.ella.backend.entities.Goal;
 import com.ella.backend.entities.Person;
 import com.ella.backend.enums.GoalStatus;
+import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.PersonRepository;
@@ -13,6 +14,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +31,19 @@ public class GoalService {
         Person owner = personRepository.findById(ownerUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa (owner) não encontrada"));
 
+        BigDecimal currentAmount = dto.getCurrentAmount() != null
+                ? dto.getCurrentAmount()
+                : BigDecimal.ZERO;
+
+        validateGoalBusinessRules(dto.getTargetAmount(), currentAmount, dto.getDeadline());
+
+        Goal goal = getGoal(dto, owner);
+
+        Goal saved = goalRepository.save(goal);
+        return toDTO(saved);
+    }
+
+    private static Goal getGoal(GoalRequestDTO dto, Person owner) {
         Goal goal = new Goal();
         goal.setTitle(dto.getTitle());
         goal.setDescription(dto.getDescription());
@@ -44,9 +59,7 @@ public class GoalService {
         } else {
             goal.setStatus(GoalStatus.ACTIVE);
         }
-
-        Goal saved = goalRepository.save(goal);
-        return toDTO(saved);
+        return goal;
     }
 
     public List<GoalResponseDTO> findAll() {
@@ -81,6 +94,21 @@ public class GoalService {
         Goal goal = goalRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Objetivo não encontrado"));
 
+        // Calcula o "estado final" para validar
+        BigDecimal targetAmount = dto.getTargetAmount() != null
+                ? dto.getTargetAmount()
+                : goal.getTargetAmount();
+
+        BigDecimal currentAmount = dto.getCurrentAmount() != null
+                ? dto.getCurrentAmount()
+                : goal.getCurrentAmount();
+
+        LocalDate deadline = dto.getDeadline() != null
+                ? dto.getDeadline()
+                : goal.getDeadline();
+
+        validateGoalBusinessRules(targetAmount, currentAmount, deadline);
+
         goal.setTitle(dto.getTitle());
         goal.setDescription(dto.getDescription());
         goal.setTargetAmount(dto.getTargetAmount());
@@ -113,6 +141,20 @@ public class GoalService {
                 .orElseThrow(() -> new ResourceNotFoundException("Objetivo não encontrado"));
 
         goalRepository.delete(goal);
+    }
+
+    private void validateGoalBusinessRules(BigDecimal targetAmount, BigDecimal currentAmount, LocalDate deadline) {
+        if (targetAmount == null || targetAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("Valor alvo da meta deve ser maior que zero");
+        }
+
+        if (currentAmount != null && currentAmount.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BadRequestException("Valor atual da meta não pode ser negativo");
+        }
+
+        if (deadline != null && deadline.isBefore(LocalDate.now())) {
+            throw new BadRequestException("Prazo da meta não pode estar no passado");
+        }
     }
 
     private GoalResponseDTO toDTO(Goal goal) {

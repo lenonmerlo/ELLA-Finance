@@ -1,6 +1,9 @@
 package com.ella.backend.services;
 
 import com.ella.backend.entities.User;
+import com.ella.backend.enums.Role;
+import com.ella.backend.enums.Status;
+import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ConflictException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.UserRepository;
@@ -8,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,6 +39,9 @@ public class UserService {
     }
 
     public User create(User user) {
+        normalizeUser(user);
+        validateUserBusinessRules(user, true);
+
         if (userRepository.existsByEmail(user.getEmail())) {
             throw new ConflictException("E-mail já cadastrado");
         }
@@ -70,11 +78,53 @@ public class UserService {
             existing.setPassword(passwordEncoder.encode(data.getPassword()));
         }
 
+        validateUserBusinessRules(existing, false);
+
         return userRepository.save(existing);
     }
 
     public void delete(String id) {
         User existing = findById(id);
         userRepository.delete(existing);
+    }
+
+    private String normalizeEmail(String email) {
+        if (email == null) return null;
+        return email.trim().toLowerCase();
+    }
+
+    private void normalizeUser(User user) {
+        user.setEmail(normalizeEmail(user.getEmail()));
+
+        if (user.getStatus() == null) {
+            user.setStatus(Status.ACTIVE);
+        }
+
+        if (user.getRole() == null) {
+            user.setRole(Role.USER);
+        }
+    }
+
+    private void validateUserBusinessRules(User user, boolean isCreate) {
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
+            throw new BadRequestException("E-mail é obrigatório");
+        }
+
+        if (isCreate && (user.getPassword() == null || user.getPassword().isBlank())) {
+            throw new BadRequestException("Senha é obrigatória");
+        }
+
+        // Regras herdadas de Person (mesmas de PersonService)
+        if (user.getName() == null || user.getName().isBlank()) {
+            throw new BadRequestException("Nome é obrigatório");
+        }
+
+        if (user.getBirthDate() != null && user.getBirthDate().isAfter(LocalDate.now())) {
+            throw new BadRequestException("Data de nascimento não pode ser futura");
+        }
+
+        if (user.getIncome() != null && user.getIncome().compareTo(BigDecimal.ZERO) < 0) {
+            throw new BadRequestException("Renda não pode ser negativa");
+        }
     }
 }

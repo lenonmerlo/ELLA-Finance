@@ -4,7 +4,9 @@ import com.ella.backend.dto.IncomeRequestDTO;
 import com.ella.backend.dto.IncomeResponseDTO;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
+import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
+import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
@@ -13,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +30,8 @@ public class IncomeService {
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public IncomeResponseDTO create(IncomeRequestDTO dto) {
+        validateIncomeBusinessRules(dto);
+
         UUID personUuid = UUID.fromString(dto.getPersonId());
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
@@ -88,6 +93,8 @@ public class IncomeService {
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public IncomeResponseDTO update(String id, IncomeRequestDTO dto) {
+        validateIncomeBusinessRules(dto);
+
         UUID uuid = UUID.fromString(id);
         FinancialTransaction entity = transactionRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Receita não encontrada"));
@@ -125,6 +132,32 @@ public class IncomeService {
         }
 
         transactionRepository.delete(entity);
+    }
+
+    private void validateIncomeBusinessRules(IncomeRequestDTO dto) {
+        if (dto.getAmount() == null || dto.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("Valor da receita deve ser maior que zero");
+        }
+
+        LocalDate txDate = dto.getTransactionDate();
+        LocalDate dueDate = dto.getDueDate();
+        LocalDate paidDate = dto.getPaidDate();
+
+        if (dueDate != null && dueDate.isBefore(txDate)) {
+            throw new BadRequestException("Data de vencimento não pode ser anterior à data da transação");
+        }
+
+        if (paidDate != null && paidDate.isBefore(txDate)) {
+            throw new BadRequestException("Data de pagamento não pode ser anterior à data da transação");
+        }
+
+        if (dto.getStatus() == TransactionStatus.PAID && paidDate == null) {
+            throw new BadRequestException("Receitas com status PAID devem ter a data de pagamento");
+        }
+
+        if (paidDate != null && dto.getStatus() != TransactionStatus.PAID) {
+            throw new BadRequestException("Se a data de pagamento foi informada, o status deve ser PAID");
+        }
     }
 
     private IncomeResponseDTO toDTO(FinancialTransaction entity) {
