@@ -2,6 +2,7 @@ package com.ella.backend.entities;
 
 import com.ella.backend.enums.GoalStatus;
 import jakarta.persistence.*;
+import jakarta.persistence.Index;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -12,7 +13,15 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "goals")
+@Table(
+        name = "goals",
+        indexes = {
+                @Index(
+                        name = "idx_goal_owner_status",
+                        columnList = "owner_id, status"
+                )
+        }
+)
 @Data
 public class Goal {
 

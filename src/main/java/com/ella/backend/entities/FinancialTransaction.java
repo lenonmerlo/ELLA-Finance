@@ -3,6 +3,7 @@ package com.ella.backend.entities;
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
 import jakarta.persistence.*;
+import jakarta.persistence.Index;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -13,7 +14,19 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "financial_transactions")
+@Table(
+        name = "financial_transactions",
+        indexes = {
+                @Index(
+                        name = "idx_tx_person_date",
+                        columnList = "person_id, transaction_date"
+                ),
+                @Index(
+                        name = "idx_tx_person_type_date",
+                        columnList = "person_id, type, transaction_date"
+                )
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor

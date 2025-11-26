@@ -1,6 +1,7 @@
 package com.ella.backend.entities;
 
 import jakarta.persistence.*;
+import jakarta.persistence.Index;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -11,7 +12,15 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "credit_cards")
+@Table(
+        name = "credit_cards",
+        indexes = {
+                @Index(
+                        name = "idx_card_owner",
+                        columnList = "owner_id"
+                )
+        }
+)
 @Data
 public class CreditCard {
 
