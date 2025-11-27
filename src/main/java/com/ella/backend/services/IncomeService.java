@@ -10,6 +10,7 @@ import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.audit.Auditable;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
@@ -32,6 +33,7 @@ public class IncomeService {
     private final FinancialTransactionRepository transactionRepository;
     private final PersonRepository personRepository;
 
+    @Auditable(action = "INCOME_CREATED", entityType = "FinancialTransaction")
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public IncomeResponseDTO create(IncomeRequestDTO dto) {
@@ -107,6 +109,7 @@ public class IncomeService {
                 .map(this::toDTO);
     }
 
+    @Auditable(action = "INCOME_UPDATED", entityType = "FinancialTransaction")
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public IncomeResponseDTO update(String id, IncomeRequestDTO dto) {
@@ -137,6 +140,7 @@ public class IncomeService {
         return toDTO(entity);
     }
 
+    @Auditable(action = "INCOME_DELETED", entityType = "FinancialTransaction")
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public void delete(String id) {

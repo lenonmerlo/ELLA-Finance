@@ -12,6 +12,8 @@ import com.ella.backend.enums.Status;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.PaymentRepository;
 import com.ella.backend.repositories.UserRepository;
+import com.ella.backend.audit.Auditable;
+
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,7 @@ public class PaymentService {
      * V1: simulação de pagamento (sem integração real com gateway).
      * Futuramente, este método pode ser substituído por uma integração com Mercado Pago / Stripe.
      */
+    @Auditable(action = "PAYMENT_CREATED", entityType = "Payment")
     @Transactional
     public PaymentResponseDTO simulatePayment(PaymentSimulationRequestDTO dto) {
         UUID userUuid = UUID.fromString(dto.getUserId());

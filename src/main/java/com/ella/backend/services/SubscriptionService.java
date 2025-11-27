@@ -7,6 +7,8 @@ import com.ella.backend.enums.SubscriptionStatus;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.SubscriptionRepository;
 import com.ella.backend.repositories.UserRepository;
+import com.ella.backend.audit.Auditable;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -34,6 +36,7 @@ public class SubscriptionService {
     /**
      * Cria ou atualiza uma assinatura simples de 30 dias.
      */
+    @Auditable(action = "SUBSCRIPTION_CREATED_OR_UPDATED", entityType = "Subscription")
     public Subscription createOrUpdateSubscription(User user, com.ella.backend.enums.Plan plan) {
         LocalDate start = LocalDate.now();
         LocalDate end = start.plusDays(30);

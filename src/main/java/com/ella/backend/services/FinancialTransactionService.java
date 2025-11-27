@@ -8,6 +8,8 @@ import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.mappers.FinancialTransactionMapper;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.audit.Auditable;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +30,7 @@ public class FinancialTransactionService {
         this.personRepository = personRepository;
     }
 
+    @Auditable(action = "TRANSACTION_CREATED", entityType = "FinancialTransaction")
     public FinancialTransactionResponseDTO create(FinancialTransactionRequestDTO dto) {
         UUID personUuid = UUID.fromString(dto.personId());
         Person person = personRepository.findById(personUuid)
@@ -72,6 +75,7 @@ public class FinancialTransactionService {
                 .toList();
     }
 
+    @Auditable(action = "TRANSACTION_UPDATED", entityType = "FinancialTransaction")
     public FinancialTransactionResponseDTO update(String id, FinancialTransactionRequestDTO dto) {
         UUID uuid = UUID.fromString(id);
         FinancialTransaction entity = transactionRepository.findById(uuid)
@@ -87,6 +91,7 @@ public class FinancialTransactionService {
         return FinancialTransactionMapper.toResponseDTO(updated);
     }
 
+    @Auditable(action = "TRANSACTION_DELETED", entityType = "FinancialTransaction")
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);
         FinancialTransaction entity = transactionRepository.findById(uuid)

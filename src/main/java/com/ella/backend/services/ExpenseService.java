@@ -1,6 +1,7 @@
 // src/main/java/com/ella/backend/services/ExpenseService.java
 package com.ella.backend.services;
 
+import com.ella.backend.audit.Auditable;
 import com.ella.backend.dto.ExpenseRequestDTO;
 import com.ella.backend.dto.ExpenseResponseDTO;
 import com.ella.backend.entities.FinancialTransaction;
@@ -33,6 +34,7 @@ public class ExpenseService {
     private final FinancialTransactionRepository transactionRepository;
     private final PersonRepository personRepository;
 
+    @Auditable(action = "EXPENSE_CREATED", entityType = "FinancialTransaction")
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public ExpenseResponseDTO create(ExpenseRequestDTO dto) {
@@ -109,6 +111,7 @@ public class ExpenseService {
                 .map(this::toDTO);
     }
 
+    @Auditable(action = "EXPENSE_UPDATED", entityType = "FinancialTransaction")
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public ExpenseResponseDTO update(String id, ExpenseRequestDTO dto) {
@@ -140,6 +143,7 @@ public class ExpenseService {
         return toDTO(entity);
     }
 
+    @Auditable(action = "EXPENSE_DELETED", entityType = "FinancialTransaction")
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public void delete(String id) {

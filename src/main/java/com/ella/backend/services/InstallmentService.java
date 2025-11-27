@@ -10,8 +10,11 @@ import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
+import com.ella.backend.audit.Auditable;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -24,6 +27,8 @@ public class InstallmentService {
     private final InvoiceRepository invoiceRepository;
     private final FinancialTransactionRepository transactionRepository;
 
+    @Auditable(action = "INSTALLMENT_CREATED", entityType = "Installment")
+    @Transactional
     public InstallmentResponseDTO create(InstallmentRequestDTO dto) {
         Invoice invoice = invoiceRepository.findById(UUID.fromString(dto.getInvoiceId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
@@ -67,6 +72,8 @@ public class InstallmentService {
                 .toList();
     }
 
+    @Auditable(action = "INSTALLMENT_UPDATED", entityType = "Installment")
+    @Transactional
     public InstallmentResponseDTO update(String id, InstallmentRequestDTO dto) {
         Installment installment = installmentRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Parcela não encontrada"));
@@ -88,6 +95,8 @@ public class InstallmentService {
         return toDTO(installment);
     }
 
+    @Auditable(action = "INSTALLMENT_DELETED", entityType = "Installment")
+    @Transactional
     public void delete(String id) {
         Installment installment = installmentRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Parcela não encontrada"));

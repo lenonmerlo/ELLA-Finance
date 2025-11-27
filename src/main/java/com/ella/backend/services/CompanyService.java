@@ -7,6 +7,8 @@ import com.ella.backend.entities.Person;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.CompanyRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.audit.Auditable;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +22,7 @@ public class CompanyService {
     private final CompanyRepository companyRepository;
     private final PersonRepository personRepository;
 
+    @Auditable(action = "COMPANY_CREATED", entityType = "Company")
     public CompanyResponseDTO create(CompanyRequestDTO dto) {
         UUID ownerUuid = UUID.fromString(dto.getOwnerId());
 
@@ -63,6 +66,7 @@ public class CompanyService {
                 .toList();
     }
 
+    @Auditable(action = "COMPANY_UPDATED", entityType = "Company")
     public CompanyResponseDTO update(String id, CompanyRequestDTO dto) {
         UUID uuid = UUID.fromString(id);
 
@@ -84,6 +88,7 @@ public class CompanyService {
         return toDTO(existing);
     }
 
+    @Auditable(action = "COMPANY_DELETED", entityType = "Company")
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);
 

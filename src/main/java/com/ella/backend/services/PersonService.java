@@ -5,6 +5,8 @@ import com.ella.backend.enums.Status;
 import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.audit.Auditable;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -29,12 +31,14 @@ public class PersonService {
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
     }
 
+    @Auditable(action = "PERSON_CREATED", entityType = "Person")
     public Person create(Person person) {
         applyPersonDefaults(person);
         validatePersonBusinessRules(person);
         return personRepository.save(person);
     }
 
+    @Auditable(action = "PERSON_UPDATED", entityType = "Person")
     public Person update(String id, Person data) {
         Person existing = findById(id);
 
@@ -54,6 +58,7 @@ public class PersonService {
         return personRepository.save(existing);
     }
 
+    @Auditable(action = "PERSON_DELETED", entityType = "Person")
     public void delete(String id) {
         Person existing = findById(id);
         personRepository.delete(existing);

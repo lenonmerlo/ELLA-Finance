@@ -7,6 +7,8 @@ import com.ella.backend.entities.Invoice;
 import com.ella.backend.enums.InvoiceStatus;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.CreditCardRepository;
+import com.ella.backend.audit.Auditable;
+
 import com.ella.backend.repositories.InvoiceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ public class InvoiceService {
     private final InvoiceRepository invoiceRepository;
     private final CreditCardRepository creditCardRepository;
 
+    @Auditable(action = "INVOICE_CREATED", entityType = "Invoice")
     public InvoiceResponseDTO create(InvoiceRequestDTO dto) {
         CreditCard card = creditCardRepository.findById(UUID.fromString(dto.getCardId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Cartão não encontrado"));
@@ -66,6 +69,7 @@ public class InvoiceService {
         return invoiceRepository.findAll().stream().map(this::toDTO).toList();
     }
 
+    @Auditable(action = "INVOICE_UPDATED", entityType = "Invoice")
     public InvoiceResponseDTO update(String id, InvoiceRequestDTO dto) {
         Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
@@ -96,6 +100,7 @@ public class InvoiceService {
         return toDTO(invoice);
     }
 
+    @Auditable(action = "INVOICE_DELETED", entityType = "Invoice")
     public void delete(String id) {
         Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));

@@ -7,6 +7,8 @@ import com.ella.backend.entities.Person;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.audit.Auditable;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,6 +22,7 @@ public class CreditCardService {
     private final CreditCardRepository creditCardRepository;
     private final PersonRepository personRepository;
 
+    @Auditable(action = "CREDIT_CARD_CREATED", entityType = "CreditCard")
     public CreditCardResponseDTO create(CreditCardRequestDTO dto) {
         Person owner = personRepository.findById(UUID.fromString(dto.getOwnerId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
@@ -55,6 +58,7 @@ public class CreditCardService {
         return creditCardRepository.findAll().stream().map(this::toDTO).toList();
     }
 
+    @Auditable(action = "CREDIT_CARD_UPDATED", entityType = "CreditCard")
     public CreditCardResponseDTO update(String id, CreditCardRequestDTO dto) {
         CreditCard card = creditCardRepository.findById(UUID.fromString(id)).orElseThrow(
                 () -> new ResourceNotFoundException("Cartão não encontrado")
@@ -75,6 +79,7 @@ public class CreditCardService {
         return toDTO(card);
     }
 
+    @Auditable(action = "CREDIT_CARD_DELETED", entityType = "CreditCard")
     public void delete(String id) {
         CreditCard card = creditCardRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Cartão não encontrado"));

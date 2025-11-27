@@ -9,6 +9,7 @@ import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.audit.Auditable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,7 @@ public class GoalService {
     private final GoalRepository goalRepository;
     private final PersonRepository personRepository;
 
+    @Auditable(action = "GOAL_CREATED", entityType = "Goal")
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public GoalResponseDTO create(GoalRequestDTO dto) {
         UUID ownerUuid = UUID.fromString(dto.getOwnerId());
@@ -88,6 +90,7 @@ public class GoalService {
                 .toList();
     }
 
+    @Auditable(action = "GOAL_UPDATED", entityType = "Goal")
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public GoalResponseDTO update(String id, GoalRequestDTO dto) {
         UUID uuid = UUID.fromString(id);
@@ -134,6 +137,7 @@ public class GoalService {
         return toDTO(saved);
     }
 
+    @Auditable(action = "GOAL_DELETED", entityType = "Goal")
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);

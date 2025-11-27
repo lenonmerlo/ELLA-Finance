@@ -7,6 +7,7 @@ import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ConflictException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.UserRepository;
+import com.ella.backend.audit.Auditable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,7 @@ public class UserService {
                 .orElseThrow(() -> new ResourceNotFoundException("Usuário não encontrado com este e-mail"));
     }
 
+    @Auditable(action = "USER_CREATED", entityType = "User")
     public User create(User user) {
         normalizeUser(user);
         validateUserBusinessRules(user, true);
@@ -49,6 +51,7 @@ public class UserService {
         return userRepository.save(user);
     }
 
+    @Auditable(action = "USER_UPDATED", entityType = "User")
     public User update(String id, User data) {
         User existing = findById(id);
 
@@ -83,6 +86,7 @@ public class UserService {
         return userRepository.save(existing);
     }
 
+    @Auditable(action = "USER_DELETED", entityType = "User")
     public void delete(String id) {
         User existing = findById(id);
         userRepository.delete(existing);
