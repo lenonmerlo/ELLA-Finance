@@ -20,7 +20,7 @@ public class ApiResponse<T> {
     private LocalDateTime timestamp;
     private List<String> errors;
 
-    // resposta de sucesso
+    // resposta de sucesso (com dado + mensagem)
     public static <T> ApiResponse<T> success(T data, String message) {
         return ApiResponse.<T>builder()
                 .success(true)
@@ -29,6 +29,16 @@ public class ApiResponse<T> {
                 .timestamp(LocalDateTime.now())
                 .errors(null)
                 .build();
+    }
+
+    // resposta de sucesso (só dado, sem mensagem)
+    public static <T> ApiResponse<T> success(T data) {
+        return success(data, null);
+    }
+
+    // resposta de sucesso (só mensagem, sem dado)
+    public static <T> ApiResponse<T> message(String message) {
+        return success(null, message);
     }
 
     // resposta de erro genérica
