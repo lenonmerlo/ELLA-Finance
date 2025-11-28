@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +29,7 @@ public class IncomeController {
     private final IncomeService incomeService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#dto.personId)")
     public ResponseEntity<ApiResponse<IncomeResponseDTO>> create(@Valid @RequestBody IncomeRequestDTO dto) {
         IncomeResponseDTO created = incomeService.create(dto);
 
@@ -36,6 +38,7 @@ public class IncomeController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessIncome(#id)")
     public ResponseEntity<ApiResponse<IncomeResponseDTO>> findById(@PathVariable String id) {
         IncomeResponseDTO found = incomeService.findById(id);
 
@@ -44,6 +47,7 @@ public class IncomeController {
     }
 
     @GetMapping("/person/{personId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessIncomesOfPerson(#personId)")
     public ResponseEntity<ApiResponse<Page<IncomeResponseDTO>>> findByPerson(
             @PathVariable String personId,
             @RequestParam(defaultValue = "0") int page,
@@ -54,6 +58,7 @@ public class IncomeController {
     }
 
     @GetMapping("/person/{personId}/period")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessIncomesOfPerson(#personId)")
     public ResponseEntity<ApiResponse<List<IncomeResponseDTO>>> findByPersonAndPeriod(
             @PathVariable String personId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
@@ -65,6 +70,7 @@ public class IncomeController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessIncome(#id)")
     public ResponseEntity<ApiResponse<IncomeResponseDTO>> update(
             @PathVariable String id,
             @Valid @RequestBody IncomeRequestDTO dto) {
@@ -74,6 +80,7 @@ public class IncomeController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessIncome(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         incomeService.delete(id);
 

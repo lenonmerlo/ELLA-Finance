@@ -8,6 +8,7 @@ import com.ella.backend.services.DashboardService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -24,7 +25,13 @@ public class DashboardController {
         );
     }
 
+    /**
+     * Dashboard completo.
+     * ADMIN: pode ver qualquer dashboard.
+     * USER: só pode ver dashboard da própria Person.
+     */
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#request.personId())")
     public ResponseEntity<ApiResponse<DashboardResponseDTO>> getDashboard(
             @Valid @RequestBody DashboardRequestDTO request
     ) {
@@ -35,7 +42,13 @@ public class DashboardController {
         );
     }
 
+    /**
+     * Dashboard rápido (quick overview).
+     * ADMIN: pode ver tudo.
+     * USER: só pode ver se o personId for dele.
+     */
     @GetMapping("/quick/{personId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#personId)")
     public ResponseEntity<ApiResponse<DashboardResponseDTO>> getQuickDashboard(
             @PathVariable String personId
     ) {

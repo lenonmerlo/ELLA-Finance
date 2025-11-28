@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +30,7 @@ public class ExpenseController {
     private final ExpenseService expenseService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#dto.personId())")
     public ResponseEntity<ApiResponse<ExpenseResponseDTO>> create(
             @Valid @RequestBody ExpenseRequestDTO dto
     ) {
@@ -39,6 +41,7 @@ public class ExpenseController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessExpense(#id)")
     public ResponseEntity<ApiResponse<ExpenseResponseDTO>> findById(@PathVariable String id) {
         ExpenseResponseDTO found = expenseService.findById(id);
         return ResponseEntity.ok(
@@ -47,6 +50,7 @@ public class ExpenseController {
     }
 
     @GetMapping("/person/{personId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#personId)")
     public ResponseEntity<ApiResponse<Page<ExpenseResponseDTO>>> findByPerson(
             @PathVariable String personId,
             @RequestParam(defaultValue = "0") int page,
@@ -57,6 +61,7 @@ public class ExpenseController {
     }
 
     @GetMapping("/person/{personId}/period")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#personId)")
     public ResponseEntity<ApiResponse<List<ExpenseResponseDTO>>> findByPersonAndPeriod(
             @PathVariable String personId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
@@ -69,6 +74,7 @@ public class ExpenseController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessExpense(#id)")
     public ResponseEntity<ApiResponse<ExpenseResponseDTO>> update(
             @PathVariable String id,
             @Valid @RequestBody ExpenseRequestDTO dto
@@ -80,6 +86,7 @@ public class ExpenseController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessExpense(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         expenseService.delete(id);
         return ResponseEntity.ok(

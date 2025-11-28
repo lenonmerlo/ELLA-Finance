@@ -47,7 +47,7 @@ public class PersonController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#id)")
     public ResponseEntity<ApiResponse<PersonResponseDTO>> findById(@PathVariable String id) {
         Person person = personService.findById(id);
         PersonResponseDTO dto = PersonMapper.toResponseDTO(person);
@@ -80,7 +80,7 @@ public class PersonController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#id)")
     public ResponseEntity<ApiResponse<PersonResponseDTO>> update(@PathVariable String id,
                                                                  @RequestBody PersonRequestDTO request) {
         Person entity = PersonMapper.toEntity(request);
@@ -98,7 +98,7 @@ public class PersonController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         personService.delete(id);
 

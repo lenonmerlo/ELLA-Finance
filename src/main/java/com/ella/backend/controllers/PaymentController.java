@@ -7,6 +7,7 @@ import com.ella.backend.services.PaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,6 +24,7 @@ public class PaymentController {
      * Futuro: este endpoint pode ser substituído por um flow real de checkout.
      */
     @PostMapping("/simulate")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#dto.userId())")
     public ResponseEntity<PaymentResponseDTO> simulatePayment(
             @Valid @RequestBody PaymentSimulationRequestDTO dto
     ) {
@@ -31,6 +33,7 @@ public class PaymentController {
     }
 
     @GetMapping("/user/{userId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#userId)")
     public ResponseEntity<List<PaymentResponseDTO>> findByUser(@PathVariable String userId) {
         List<PaymentResponseDTO> payments = paymentService.findByUser(userId);
         return ResponseEntity.ok(payments);

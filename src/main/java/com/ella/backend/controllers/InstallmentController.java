@@ -9,6 +9,7 @@ import com.ella.backend.services.InstallmentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,6 +22,7 @@ public class InstallmentController {
     private final InstallmentService installmentService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransaction(#dto.transactionId)")
     public ResponseEntity<ApiResponse<InstallmentResponseDTO>> create(
             @Valid @RequestBody InstallmentRequestDTO dto
     ) {
@@ -31,6 +33,7 @@ public class InstallmentController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInstallment(#id)")
     public ResponseEntity<ApiResponse<InstallmentResponseDTO>> findById(@PathVariable String id) {
         InstallmentResponseDTO found = installmentService.findById(id);
         return ResponseEntity.ok(
@@ -39,6 +42,7 @@ public class InstallmentController {
     }
 
     @GetMapping("/invoice/{invoiceId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInvoice(#invoiceId)")
     public ResponseEntity<ApiResponse<List<InstallmentResponseDTO>>> findByInvoice(
             @PathVariable String invoiceId
     ) {
@@ -49,6 +53,7 @@ public class InstallmentController {
     }
 
     @GetMapping("/transaction/{transactionId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransaction(#transactionId)")
     public ResponseEntity<ApiResponse<List<InstallmentResponseDTO>>> findByTransaction(
             @PathVariable String transactionId
     ) {
@@ -59,6 +64,7 @@ public class InstallmentController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInstallment(#id)")
     public ResponseEntity<ApiResponse<InstallmentResponseDTO>> update(
             @PathVariable String id,
             @Valid @RequestBody InstallmentRequestDTO dto
@@ -70,6 +76,7 @@ public class InstallmentController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInstallment(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         installmentService.delete(id);
         return ResponseEntity.ok(

@@ -5,175 +5,188 @@ import com.ella.backend.enums.Role;
 import com.ella.backend.repositories.*;
 import com.ella.backend.services.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import java.util.Optional;
 import java.util.UUID;
 
-@Component("securityService")
+@Component
 @RequiredArgsConstructor
 public class SecurityService {
 
     private final UserService userService;
-
     private final PersonRepository personRepository;
-    private final CompanyRepository companyRepository;
     private final FinancialTransactionRepository financialTransactionRepository;
+    private final CompanyRepository companyRepository;
     private final CreditCardRepository creditCardRepository;
-    private final InvoiceRepository invoiceRepository;
     private final GoalRepository goalRepository;
+    private final ExpenseRepository expenseRepository;
 
-    // =========================
+    // =========================================================
     // Helpers centrais
-    // =========================
+    // =========================================================
 
-    private Optional<User> getCurrentUserOptional() {
+    /** Busca o usuário autenticado ou lança AccessDeniedException. */
+    private User getAuthenticatedUserOrThrow() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
-        if (auth == null || !auth.isAuthenticated()) {
-            return Optional.empty();
+        if (auth == null || !auth.isAuthenticated()
+                || "anonymousUser".equals(auth.getPrincipal())) {
+            throw new AccessDeniedException("Usuário não autenticado");
         }
 
         String email = auth.getName(); // subject do JWT
-        try {
-            User user = userService.findByEmail(email);
-            return Optional.of(user);
-        } catch (Exception e) {
-            return Optional.empty();
-        }
+        return userService.findByEmail(email);
     }
 
-    private User getCurrentUserOrThrow() {
-        return getCurrentUserOptional()
-                .orElseThrow(() -> new IllegalStateException("Usuário autenticado não encontrado no banco"));
-    }
-
-    private UUID parseUuid(String id) {
-        return UUID.fromString(id);
-    }
-
+    /** Verifica se o usuário é ADMIN. */
     private boolean isAdmin(User user) {
         return user.getRole() == Role.ADMIN;
     }
 
-    public String getCurrentUserId() {
-        return getCurrentUserOrThrow().getId().toString();
-    }
-
-    // =========================
+    // =========================================================
     // Regras genéricas
-    // =========================
+    // =========================================================
 
-    /**
-     * Verifica se o usuário logado é o próprio dono (User/Person) do id informado.
-     * Pode ser usado em endpoints de /api/users/{id} ou /api/persons/{id}.
-     */
+    /** Versão antiga, se ainda tiver algum @PreAuthorize usando. */
     public boolean isCurrentUser(String id) {
-        User current = getCurrentUserOrThrow();
-        UUID targetId = parseUuid(id);
-        return current.getId().equals(targetId);
+        User current = getAuthenticatedUserOrThrow();
+        return current.getId() != null
+                && current.getId().toString().equals(id);
     }
 
-    // =========================
+    // =========================================================
     // Person
-    // =========================
+    // =========================================================
 
     public boolean canAccessPerson(String personId) {
-        User current = getCurrentUserOrThrow();
+        User current = getAuthenticatedUserOrThrow();
+
+        // ADMIN pode tudo
         if (isAdmin(current)) return true;
 
-        UUID id = parseUuid(personId);
-
-        return personRepository.findById(id)
-                .map(person -> person.getId().equals(current.getId()))
-                .orElse(false);
+        // USER só pode ver/alterar a própria Person
+        try {
+            UUID uuid = UUID.fromString(personId);
+            return personRepository.findById(uuid)
+                    .map(person -> person.getId() != null
+                            && person.getId().equals(current.getId()))
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            // id inválido = nega acesso
+            return false;
+        }
     }
 
-    // =========================
-    // Company
-    // =========================
-
-    public boolean canAccessCompany(String companyId) {
-        User current = getCurrentUserOrThrow();
-        if (isAdmin(current)) return true;
-
-        UUID id = parseUuid(companyId);
-
-        return companyRepository.findById(id)
-                .map(company -> company.getOwner() != null
-                        && company.getOwner().getId().equals(current.getId()))
-                .orElse(false);
-    }
-
-    // =========================
+    // =========================================================
     // FinancialTransaction
-    // =========================
+    // =========================================================
 
     public boolean canAccessTransaction(String transactionId) {
-        User current = getCurrentUserOrThrow();
-        if (isAdmin(current)) return true;
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
 
-        UUID id = parseUuid(transactionId);
-
-        return financialTransactionRepository.findById(id)
-                .map(tx -> tx.getPerson() != null
-                        && tx.getPerson().getId().equals(current.getId()))
-                .orElse(false);
+        try {
+            UUID uuid = UUID.fromString(transactionId);
+            return financialTransactionRepository.findById(uuid)
+                    .map(tx ->
+                            tx.getPerson() != null &&
+                                    tx.getPerson().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
-    // Para endpoints que usam personId direto (ex: /transactions/person/{personId})
     public boolean canAccessTransactionsOfPerson(String personId) {
+        // Mesma regra de Person
         return canAccessPerson(personId);
     }
 
-    // =========================
+    // =========================================================
+    // Company
+    // =========================================================
+
+    public boolean canAccessCompany(String companyId) {
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
+
+        try {
+            UUID uuid = UUID.fromString(companyId);
+            return companyRepository.findById(uuid)
+                    .map(company ->
+                            company.getOwner() != null &&
+                                    company.getOwner().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    // =========================================================
     // CreditCard
-    // =========================
+    // =========================================================
 
     public boolean canAccessCreditCard(String cardId) {
-        User current = getCurrentUserOrThrow();
-        if (isAdmin(current)) return true;
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
 
-        UUID id = parseUuid(cardId);
-
-        return creditCardRepository.findById(id)
-                .map(card -> card.getOwner() != null
-                        && card.getOwner().getId().equals(current.getId()))
-                .orElse(false);
+        try {
+            UUID uuid = UUID.fromString(cardId);
+            return creditCardRepository.findById(uuid)
+                    .map(card ->
+                            card.getOwner() != null &&
+                                    card.getOwner().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
-    // =========================
-    // Invoice
-    // =========================
-
-    public boolean canAccessInvoice(String invoiceId) {
-        User current = getCurrentUserOrThrow();
-        if (isAdmin(current)) return true;
-
-        UUID id = parseUuid(invoiceId);
-
-        return invoiceRepository.findById(id)
-                .map(inv -> inv.getCard() != null
-                        && inv.getCard().getOwner() != null
-                        && inv.getCard().getOwner().getId().equals(current.getId()))
-                .orElse(false);
-    }
-
-    // =========================
+    // =========================================================
     // Goal
-    // =========================
+    // =========================================================
 
     public boolean canAccessGoal(String goalId) {
-        User current = getCurrentUserOrThrow();
-        if (isAdmin(current)) return true;
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
 
-        UUID id = parseUuid(goalId);
+        try {
+            UUID uuid = UUID.fromString(goalId);
+            return goalRepository.findById(uuid)
+                    .map(goal ->
+                            goal.getOwner() != null &&
+                                    goal.getOwner().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
 
-        return goalRepository.findById(id)
-                .map(goal -> goal.getOwner() != null
-                        && goal.getOwner().getId().equals(current.getId()))
-                .orElse(false);
+    // =========================================================
+    // Expense
+    // =========================================================
+
+    public boolean canAccessExpense(String expenseId) {
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
+
+        try {
+            UUID uuid = UUID.fromString(expenseId);
+            return expenseRepository.findById(uuid)
+                    .map(expense ->
+                            expense.getPerson() != null &&
+                                    expense.getPerson().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 }

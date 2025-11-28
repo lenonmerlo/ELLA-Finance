@@ -7,6 +7,7 @@ import com.ella.backend.services.InvoiceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,6 +20,7 @@ public class InvoiceController {
     private final InvoiceService invoiceService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessCard(#dto.cardId)")
     public ResponseEntity<ApiResponse<InvoiceResponseDTO>> create(
             @Valid @RequestBody InvoiceRequestDTO dto
             ) {
@@ -27,24 +29,28 @@ public class InvoiceController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInvoice(#id)")
     public ResponseEntity<ApiResponse<InvoiceResponseDTO>> findById(@PathVariable String id) {
         InvoiceResponseDTO found = invoiceService.findById(id);
         return ResponseEntity.ok(ApiResponse.success(found, "Fatura encontrada"));
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<InvoiceResponseDTO>>> findAll() {
         List<InvoiceResponseDTO> list = invoiceService.findAll();
         return ResponseEntity.ok(ApiResponse.success(list, "Faturas encontradas"));
     }
 
     @GetMapping("/card/{cardId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessCard(#cardId)")
     public ResponseEntity<ApiResponse<List<InvoiceResponseDTO>>> findByCard(@PathVariable String cardId) {
         List<InvoiceResponseDTO> list = invoiceService.findyByCard(cardId);
         return ResponseEntity.ok(ApiResponse.success(list, "Faturas do cartão encontradas"));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInvoice(#id)")
     public ResponseEntity<ApiResponse<InvoiceResponseDTO>> update(@PathVariable String id,
                                                                   @Valid @RequestBody InvoiceRequestDTO dto) {
         InvoiceResponseDTO updated = invoiceService.update(id, dto);
@@ -52,6 +58,7 @@ public class InvoiceController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInvoice(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         invoiceService.delete(id);
         return ResponseEntity.ok(

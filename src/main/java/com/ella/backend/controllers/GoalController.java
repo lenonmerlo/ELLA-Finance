@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,6 +21,7 @@ public class GoalController {
     private final GoalService goalService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#dto.ownerId)")
     public ResponseEntity<ApiResponse<GoalResponseDTO>> create(
             @Valid @RequestBody GoalRequestDTO dto
             ) {
@@ -29,12 +31,14 @@ public class GoalController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<GoalResponseDTO>>> findAll() {
         List<GoalResponseDTO> list = goalService.findAll();
         return ResponseEntity.ok(ApiResponse.success(list, "Objetivos encontrados"));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessGoal(#id)")
     public ResponseEntity<ApiResponse<GoalResponseDTO>> findById(@PathVariable String id) {
         GoalResponseDTO dto = goalService.findById(id);
         return ResponseEntity.ok(
@@ -43,6 +47,7 @@ public class GoalController {
     }
 
     @GetMapping("/owner/{ownerId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#ownerId)")
     public ResponseEntity<ApiResponse<List<GoalResponseDTO>>> findByOwner(
             @PathVariable String ownerId
     ) {
@@ -53,6 +58,7 @@ public class GoalController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessGoal(#id)")
     public ResponseEntity<ApiResponse<GoalResponseDTO>> update(
             @PathVariable String id,
             @Valid @RequestBody GoalRequestDTO dto
@@ -64,6 +70,7 @@ public class GoalController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessGoal(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         goalService.delete(id);
         return ResponseEntity.ok(

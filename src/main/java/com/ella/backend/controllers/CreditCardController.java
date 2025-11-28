@@ -7,6 +7,7 @@ import com.ella.backend.services.CreditCardService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,7 +19,13 @@ public class CreditCardController {
 
     private final CreditCardService creditCardService;
 
+    /**
+     * Criar cartão de crédito.
+     * ADMIN: pode criar para qualquer pessoa.
+     * USER: só pode criar cartão para ele mesmo.
+     */
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#dto.ownerId)")
     public ResponseEntity<ApiResponse<CreditCardResponseDTO>> create(
             @Valid @RequestBody CreditCardRequestDTO dto
     ) {
@@ -28,7 +35,13 @@ public class CreditCardController {
                 .body(ApiResponse.success(created, "Cartão criado com sucesso"));
     }
 
+    /**
+     * Recuperar cartão por ID.
+     * ADMIN: pode tudo.
+     * USER: só vê cartão se for dele.
+     */
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessCreditCard(#id)")
     public ResponseEntity<ApiResponse<CreditCardResponseDTO>> findById(@PathVariable String id) {
         CreditCardResponseDTO found = creditCardService.findById(id);
         return ResponseEntity.ok(
@@ -36,7 +49,12 @@ public class CreditCardController {
         );
     }
 
+    /**
+     * Listar todos os cartões.
+     * Apenas ADMIN, pois é dado extremamente sensível.
+     */
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<List<CreditCardResponseDTO>>> findAll() {
         List<CreditCardResponseDTO> list = creditCardService.findAll();
         return ResponseEntity.ok(
@@ -44,7 +62,13 @@ public class CreditCardController {
         );
     }
 
+    /**
+     * Listar cartões por owner.
+     * ADMIN: pode tudo.
+     * USER: apenas se o ownerId for dele.
+     */
     @GetMapping("/owner/{ownerId}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#ownerId)")
     public ResponseEntity<ApiResponse<List<CreditCardResponseDTO>>> findByOwner(
             @PathVariable String ownerId
     ) {
@@ -54,7 +78,13 @@ public class CreditCardController {
         );
     }
 
+    /**
+     * Atualizar cartão.
+     * ADMIN: pode tudo.
+     * USER: só se for dono do cartão.
+     */
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessCreditCard(#id)")
     public ResponseEntity<ApiResponse<CreditCardResponseDTO>> update(
             @PathVariable String id,
             @Valid @RequestBody CreditCardRequestDTO dto
@@ -65,7 +95,13 @@ public class CreditCardController {
         );
     }
 
+    /**
+     * Remover cartão.
+     * ADMIN: pode tudo.
+     * USER: só se for dono do cartão.
+     */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessCreditCard(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         creditCardService.delete(id);
         return ResponseEntity.ok(
