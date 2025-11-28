@@ -24,7 +24,7 @@ public class FinancialTransactionController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isOwner(#dto.personId)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#dto.personId)")
     public ResponseEntity<ApiResponse<FinancialTransactionResponseDTO>> create(
             @Valid @RequestBody FinancialTransactionRequestDTO dto
     ) {
@@ -33,14 +33,14 @@ public class FinancialTransactionController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isTransactionOwner(#id)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransaction(#id)")
     public ResponseEntity<ApiResponse<FinancialTransactionResponseDTO>> findById(@PathVariable String id) {
         FinancialTransactionResponseDTO dto = service.findById(id);
         return ResponseEntity.ok(ApiResponse.success(dto, "Transação encontrada"));
     }
 
     @GetMapping("/person/{personId}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isOwner(#personId)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransactionsOfPerson(#personId)")
     public ResponseEntity<ApiResponse<List<FinancialTransactionResponseDTO>>> findByPerson(
             @PathVariable String personId
     ) {
@@ -49,7 +49,7 @@ public class FinancialTransactionController {
     }
 
     @GetMapping("/person/{personId}/period")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isOwner(#personId)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransactionsOfPerson(#personId)")
     public ResponseEntity<ApiResponse<List<FinancialTransactionResponseDTO>>> findByPersonAndPeriod(
             @PathVariable String personId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
@@ -60,7 +60,7 @@ public class FinancialTransactionController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isTransactionOwner(#id)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransaction(#id)")
     public ResponseEntity<ApiResponse<FinancialTransactionResponseDTO>> update(
             @PathVariable String id,
             @Valid @RequestBody FinancialTransactionRequestDTO dto
@@ -70,7 +70,7 @@ public class FinancialTransactionController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isTransactionOwner(#id)")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransaction(#id)")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         service.delete(id);
         return ResponseEntity.ok(ApiResponse.success(null, "Transação removida com sucesso"));
