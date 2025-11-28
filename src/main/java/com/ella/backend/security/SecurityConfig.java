@@ -45,7 +45,14 @@ public class SecurityConfig {
                         // Pré-flight CORS (browser)
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // Rotas públicas
+                        // 🔓 Rotas do Swagger / OpenAPI
+                        .requestMatchers(
+                                "/v3/api-docs/**",
+                                "/swagger-ui.html",
+                                "/swagger-ui/**"
+                        ).permitAll()
+
+                        // 🔓 Rotas públicas
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/api/users/health",
@@ -53,15 +60,15 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/users").permitAll()
 
-                        // Rotas ADMIN (privado)
+                        // 🔒 Rotas ADMIN (privado)
                         .requestMatchers("/api/users/**").hasRole("ADMIN")
 
-                        // persons + financeiro: qualquer autenticação,
+                        // 🔒 persons + financeiro: qualquer autenticação,
                         // regras finas com @PreAuthorize nos controllers
                         .requestMatchers("/api/persons/**").authenticated()
                         .requestMatchers("/api/finance/**").authenticated()
 
-                        // qualquer outra rota exige login
+                        // 🔒 qualquer outra rota exige login
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
