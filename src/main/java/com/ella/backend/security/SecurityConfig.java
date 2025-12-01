@@ -20,6 +20,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -93,17 +94,13 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        String originsEnv = System.getenv("CORS_ALLOWED_ORIGINS");
-        if (originsEnv != null && !originsEnv.isBlank()) {
-            List<String> origins = Arrays.stream(originsEnv.split(","))
-                    .map(String::trim)
-                    .filter(s -> !s.isBlank())
-                    .collect(Collectors.toList());
-            configuration.setAllowedOrigins(origins);
-        } else {
-            // Fallback em desenvolvimento (ajuste se necessário)
-            configuration.setAllowedOrigins(List.of("http://localhost:3000"));
-        }
+        // 🔓 Origens liberadas em desenvolvimento
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost:5173",     // Vite
+                "http://127.0.0.1:5173",     // Vite às vezes sobe assim
+                "http://localhost:3000",     // se um dia usar Next de novo
+                "http://localhost:5174"      // opcional, outra porta
+        ));
 
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of(
@@ -113,11 +110,13 @@ public class SecurityConfig {
                 "Accept",
                 "Origin"
         ));
+
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
+
 
 }
