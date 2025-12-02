@@ -25,6 +25,10 @@ public class JwtService {
     @Getter
     @Value("${jwt.expiration}")
     private Long expirationMillis;
+    
+    @Getter
+    @Value("${jwt.refreshExpiration:604800000}")
+    private Long refreshExpirationMillis;
 
     public String generateToken(User user) {
         return generateToken(Map.of(
@@ -33,10 +37,31 @@ public class JwtService {
         ), user.getEmail());
     }
 
+    public String generateRefreshToken(User user) {
+        return generateRefreshToken(Map.of(
+                "id", user.getId().toString(),
+                "role", user.getRole().name(),
+                "type", "refresh"
+        ), user.getEmail());
+    }
+
 
     private String generateToken(Map<String, Object> extraClaims, String subject) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expirationMillis);
+
+        return Jwts.builder()
+                .setClaims(extraClaims)
+                .setSubject(subject)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    private String generateRefreshToken(Map<String, Object> extraClaims, String subject) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + refreshExpirationMillis);
 
         return Jwts.builder()
                 .setClaims(extraClaims)
