@@ -16,6 +16,11 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import com.ella.backend.dto.UserResponseDTO;
+import com.ella.backend.mappers.UserMapper;
 import java.time.LocalDateTime;
 
 @RestController
@@ -131,6 +136,32 @@ public class AuthController {
                 .success(true)
                 .message("Logout efetuado")
                 .timestamp(LocalDateTime.now())
+                .build();
+
+        return ResponseEntity.ok(body);
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<UserResponseDTO>> me() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.<UserResponseDTO>builder()
+                            .success(false)
+                            .message("Usuário não autenticado")
+                            .timestamp(java.time.LocalDateTime.now())
+                            .build());
+        }
+
+        String email = auth.getName();
+        var user = userService.findByEmail(email);
+        UserResponseDTO dto = UserMapper.toResponseDTO(user);
+
+        ApiResponse<UserResponseDTO> body = ApiResponse.<UserResponseDTO>builder()
+                .success(true)
+                .data(dto)
+                .message("Perfil carregado")
+                .timestamp(java.time.LocalDateTime.now())
                 .build();
 
         return ResponseEntity.ok(body);
