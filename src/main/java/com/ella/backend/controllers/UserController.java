@@ -2,6 +2,7 @@
 package com.ella.backend.controllers;
 
 import com.ella.backend.dto.ApiResponse;
+import com.ella.backend.dto.UpdateProfileRequestDTO;
 import com.ella.backend.dto.UserRequestDTO;
 import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
@@ -84,7 +85,7 @@ public class UserController {
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<UserResponseDTO>> update(
             @PathVariable String id,
-            @Valid @RequestBody UserRequestDTO request
+            @Valid @RequestBody UpdateProfileRequestDTO request
     ) {
         // Check permission: ADMIN or self
         boolean isAdmin = SecurityContextHolder.getContext().getAuthentication()
@@ -98,17 +99,33 @@ public class UserController {
                 throw new AccessDeniedException("Você não tem permissão para atualizar este usuário");
             }
         }
+
+        User user = userService.findById(id);
         
-        User entity = UserMapper.toEntity(request);
-        User updated = userService.update(id, entity);
+        // Update only the provided fields
+        if (request.getName() != null) {
+            user.setName(request.getName());
+        }
+        if (request.getEmail() != null) {
+            user.setEmail(request.getEmail());
+        }
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
+        }
+        if (request.getAddress() != null) {
+            user.setAddress(request.getAddress());
+        }
+        if (request.getBirthDate() != null) {
+            user.setBirthDate(request.getBirthDate());
+        }
+        
+        User updated = userService.update(id, user);
         UserResponseDTO dto = UserMapper.toResponseDTO(updated);
 
         return ResponseEntity.ok(
                 ApiResponse.success(dto, "Usuário atualizado com sucesso")
         );
-    }
-
-    @DeleteMapping("/{id}")
+    }    @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         // Check permission: ADMIN or self
         boolean isAdmin = SecurityContextHolder.getContext().getAuthentication()
