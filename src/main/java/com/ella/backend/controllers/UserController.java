@@ -11,7 +11,9 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -44,8 +46,20 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
     public ResponseEntity<ApiResponse<UserResponseDTO>> findById(@PathVariable String id) {
+        // Check permission: ADMIN or self
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream()
+                .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"));
+        
+        if (!isAdmin) {
+            String currentEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+            User currentUser = userService.findByEmail(currentEmail);
+            if (!currentUser.getId().toString().equals(id)) {
+                throw new AccessDeniedException("Você não tem permissão para acessar este usuário");
+            }
+        }
+        
         User user = userService.findById(id);
         UserResponseDTO dto = UserMapper.toResponseDTO(user);
 
@@ -68,11 +82,23 @@ public class UserController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @securityService.isCurrentUser(#id)")
     public ResponseEntity<ApiResponse<UserResponseDTO>> update(
             @PathVariable String id,
             @Valid @RequestBody UserRequestDTO request
     ) {
+        // Check permission: ADMIN or self
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream()
+                .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"));
+        
+        if (!isAdmin) {
+            String currentEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+            User currentUser = userService.findByEmail(currentEmail);
+            if (!currentUser.getId().toString().equals(id)) {
+                throw new AccessDeniedException("Você não tem permissão para atualizar este usuário");
+            }
+        }
+        
         User entity = UserMapper.toEntity(request);
         User updated = userService.update(id, entity);
         UserResponseDTO dto = UserMapper.toResponseDTO(updated);
@@ -83,8 +109,20 @@ public class UserController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
+        // Check permission: ADMIN or self
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication()
+                .getAuthorities().stream()
+                .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"));
+        
+        if (!isAdmin) {
+            String currentEmail = SecurityContextHolder.getContext().getAuthentication().getName();
+            User currentUser = userService.findByEmail(currentEmail);
+            if (!currentUser.getId().toString().equals(id)) {
+                throw new AccessDeniedException("Você não tem permissão para deletar este usuário");
+            }
+        }
+        
         userService.delete(id);
 
         return ResponseEntity.ok(

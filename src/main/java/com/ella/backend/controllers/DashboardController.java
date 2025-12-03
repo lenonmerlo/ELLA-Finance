@@ -31,7 +31,7 @@ public class DashboardController {
      * USER: só pode ver dashboard da própria Person.
      */
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#request.personId())")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#request.personId)")
     public ResponseEntity<ApiResponse<DashboardResponseDTO>> getDashboard(
             @Valid @RequestBody DashboardRequestDTO request
     ) {

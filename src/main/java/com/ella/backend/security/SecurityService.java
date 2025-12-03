@@ -53,8 +53,11 @@ public class SecurityService {
     /** Versão antiga, se ainda tiver algum @PreAuthorize usando. */
     public boolean isCurrentUser(String id) {
         User current = getAuthenticatedUserOrThrow();
-        return current.getId() != null
+        System.out.println("[SecurityService.isCurrentUser] Comparing: current.id=" + current.getId() + " vs provided id=" + id);
+        boolean result = current.getId() != null
                 && current.getId().toString().equals(id);
+        System.out.println("[SecurityService.isCurrentUser] Result: " + result);
+        return result;
     }
 
     // =========================================================
@@ -190,3 +193,4 @@ public class SecurityService {
         }
     }
 }
+
