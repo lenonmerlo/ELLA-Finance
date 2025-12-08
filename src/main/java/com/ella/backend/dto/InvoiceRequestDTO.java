@@ -1,5 +1,6 @@
 package com.ella.backend.dto;
 
+import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.enums.InvoiceStatus;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -32,4 +33,6 @@ public class InvoiceRequestDTO {
     private BigDecimal paidAmount;
 
     private InvoiceStatus status;
+
+    private FinancialTransaction resume;
 }

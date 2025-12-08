@@ -1,5 +1,11 @@
 package com.ella.backend.services;
 
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+
+import com.ella.backend.audit.Auditable;
 import com.ella.backend.dto.InvoiceRequestDTO;
 import com.ella.backend.dto.InvoiceResponseDTO;
 import com.ella.backend.entities.CreditCard;
@@ -7,14 +13,11 @@ import com.ella.backend.entities.Invoice;
 import com.ella.backend.enums.InvoiceStatus;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.CreditCardRepository;
-import com.ella.backend.audit.Auditable;
-
+import com.ella.backend.repositories.FinancialTransactionRepository;
+import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -22,6 +25,8 @@ public class InvoiceService {
 
     private final InvoiceRepository invoiceRepository;
     private final CreditCardRepository creditCardRepository;
+    private final FinancialTransactionRepository financialTransactionRepository;
+    private final InstallmentRepository installmentRepository;
 
     @Auditable(action = "INVOICE_CREATED", entityType = "Invoice")
     public InvoiceResponseDTO create(InvoiceRequestDTO dto) {
@@ -121,7 +126,31 @@ public class InvoiceService {
         dto.setStatus(invoice.getStatus());
         dto.setCreatedAt(invoice.getCreatedAt());
         dto.setUpdatedAt(invoice.getUpdatedAt());
-        return dto;
+        // Define a pessoa como o owner do cartão da fatura
+        if (invoice.getCard() != null) {
+            dto.setPerson(invoice.getCard().getOwner());
         }
+        // Popular resumo seguindo a mesma lógica dos personalTransactions
+        // Busca todas transações do proprietário do cartão dentro do mês/ano da fatura
+        java.util.List<com.ella.backend.dto.TransactionSummaryDTO> resume = new java.util.ArrayList<>();
+        var owner = invoice.getCard() != null ? invoice.getCard().getOwner() : null;
+        if (owner != null && invoice.getMonth() != null && invoice.getYear() != null) {
+            java.time.LocalDate start = java.time.LocalDate.of(invoice.getYear(), invoice.getMonth(), 1);
+            java.time.LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
+            var txs = financialTransactionRepository.findByPersonAndTransactionDateBetween(owner, start, end);
+            for (var t : txs) {
+                com.ella.backend.dto.TransactionSummaryDTO ts = new com.ella.backend.dto.TransactionSummaryDTO();
+                ts.setId(t.getId().toString());
+                ts.setDescription(t.getDescription());
+                ts.setAmount(t.getAmount());
+                ts.setType(t.getType());
+                ts.setCategory(t.getCategory());
+                ts.setTransactionDate(t.getTransactionDate());
+                resume.add(ts);
+            }
+        }
+        dto.setResume(resume);
+        return dto;
     }
+}
 

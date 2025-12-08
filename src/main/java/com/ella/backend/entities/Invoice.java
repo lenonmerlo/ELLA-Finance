@@ -1,16 +1,29 @@
 package com.ella.backend.entities;
 
-import com.ella.backend.enums.InvoiceStatus;
-import jakarta.persistence.*;
-import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import com.ella.backend.enums.InvoiceStatus;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
+import lombok.Data;
 
 @Entity
 @Table(name = "invoices", indexes = {
@@ -53,4 +66,11 @@ public class Invoice {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    @Transient
+    private List<FinancialTransaction> resume;
+
+    @Transient
+    private List<FinancialTransaction> person;
+
 }

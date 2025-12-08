@@ -1,25 +1,57 @@
 package com.ella.backend.services;
 
-import com.ella.backend.dto.dashboard.*;
-import com.ella.backend.entities.*;
-import com.ella.backend.enums.InvoiceStatus;
-import com.ella.backend.enums.TransactionType;
-import com.ella.backend.exceptions.ResourceNotFoundException;
-import com.ella.backend.repositories.*;
-import org.springframework.cache.annotation.Cacheable;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Service;
+
+import com.ella.backend.dto.FinancialTransactionResponseDTO;
+import com.ella.backend.dto.dashboard.CategoryBreakdownDTO;
+import com.ella.backend.dto.dashboard.CompanyDashboardDTO;
+import com.ella.backend.dto.dashboard.ConsolidatedTotalsDTO;
+import com.ella.backend.dto.dashboard.DashboardRequestDTO;
+import com.ella.backend.dto.dashboard.DashboardResponseDTO;
+import com.ella.backend.dto.dashboard.GoalProgressDTO;
+import com.ella.backend.dto.dashboard.InvoiceSummaryDTO;
+import com.ella.backend.dto.dashboard.MonthlyEvolutionDTO;
+import com.ella.backend.dto.dashboard.MonthlyPointDTO;
+import com.ella.backend.dto.dashboard.SummaryDTO;
+import com.ella.backend.dto.dashboard.TotalsDTO;
+import com.ella.backend.entities.Company;
+import com.ella.backend.entities.FinancialTransaction;
+import com.ella.backend.entities.Goal;
+import com.ella.backend.entities.Invoice;
+import com.ella.backend.entities.Person;
+import com.ella.backend.enums.InvoiceStatus;
+import com.ella.backend.enums.TransactionType;
+import com.ella.backend.exceptions.ResourceNotFoundException;
+import com.ella.backend.mappers.FinancialTransactionMapper;
+import com.ella.backend.repositories.CompanyRepository;
+import com.ella.backend.repositories.FinancialTransactionRepository;
+import com.ella.backend.repositories.GoalRepository;
+import com.ella.backend.repositories.InvoiceRepository;
+import com.ella.backend.repositories.PersonRepository;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
 public class DashboardService {
+
+    private static final Logger logger = LoggerFactory.getLogger(DashboardService.class);
 
     private final PersonRepository personRepository;
     private final CompanyRepository companyRepository;
@@ -28,6 +60,7 @@ public class DashboardService {
     private final InvoiceRepository invoiceRepository;
 
     public DashboardResponseDTO buildQuickDashboard(String personId) {
+        logger.info("[Dashboard] 🔄 buildQuickDashboard iniciado para personId: {}", personId);
 
         UUID personUuid = UUID.fromString(personId);
         Person person = personRepository.findById(personUuid)
@@ -37,13 +70,20 @@ public class DashboardService {
         int year = today.getYear();
         int month = today.getMonthValue();
 
+        logger.info("[Dashboard] 📅 Buscando dados para ano: {}, mês: {}", year, month);
+
         DashboardRequestDTO request = DashboardRequestDTO.builder()
                 .personId(personId)
                 .year(year)
                 .month(month)
                 .build();
 
-        return buildDashboard(request);
+        DashboardResponseDTO response = buildDashboard(request);
+
+        logger.info("[Dashboard] ✅ buildQuickDashboard concluído. Transações retornadas: {}",
+                response.getPersonalTransactions() != null ? response.getPersonalTransactions().size() : 0);
+
+        return response;
     }
 
     @Cacheable(
@@ -51,6 +91,9 @@ public class DashboardService {
             key = "#request.personId + '-' + #request.year + '-' + #request.month"
     )
     public DashboardResponseDTO buildDashboard(DashboardRequestDTO request) {
+        logger.info("[Dashboard] 🔄 buildDashboard iniciado para personId: {}, year: {}, month: {}",
+                request.getPersonId(), request.getYear(), request.getMonth());
+
         UUID personUuid = UUID.fromString(request.getPersonId());
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
@@ -64,22 +107,32 @@ public class DashboardService {
         LocalDate yearStart = YearMonth.of(year, 1).atDay(1);
         LocalDate yearEnd = YearMonth.of(year, 12).atEndOfMonth();
 
+        logger.debug("[Dashboard] 📅 Período do mês: {} a {}", monthStart, monthEnd);
+        logger.debug("[Dashboard] 📅 Período do ano: {} a {}", yearStart, yearEnd);
+
+        // Buscar transações do mês
         List<FinancialTransaction> personalMonthTx =
                 financialTransactionRepository.findByPersonAndTransactionDateBetween(
                         person, monthStart, monthEnd
                 );
+        logger.info("[Dashboard] 📊 Transações do mês encontradas: {}", personalMonthTx.size());
 
+        // Buscar transações do ano
         List<FinancialTransaction> personalYearTx =
                 financialTransactionRepository.findByPersonAndTransactionDateBetween(
                         person, yearStart, yearEnd
                 );
+        logger.info("[Dashboard] 📊 Transações do ano encontradas: {}", personalYearTx.size());
 
         List<Invoice> personalInvoicesEntities =
                 invoiceRepository.findByCardOwnerAndMonthAndYear(person, month, year);
+        logger.info("[Dashboard] 🧾 Faturas encontradas: {}", personalInvoicesEntities.size());
 
         List<Goal> personalGoals = goalRepository.findByOwner(person);
+        logger.info("[Dashboard] 🎯 Metas encontradas: {}", personalGoals.size());
 
         List<Company> companies = companyRepository.findByOwner(person);
+        logger.info("[Dashboard] 🏢 Empresas encontradas: {}", companies.size());
 
         SummaryDTO personalSummary = buildSummary(personalMonthTx);
         TotalsDTO personalTotals = buildTotals(personalMonthTx, personalYearTx);
@@ -88,11 +141,20 @@ public class DashboardService {
         GoalProgressDTO mainGoalProgress = buildMainGoalProgress(personalGoals);
         List<InvoiceSummaryDTO> personalInvoices = buildInvoiceSummaries(personalInvoicesEntities);
 
+        // ✅ CORRIGIDO: Retornar transações do ANO INTEIRO, não só do mês
+        // Motivo: Transações podem estar em meses passados
+        List<FinancialTransactionResponseDTO> personalTransactions = personalYearTx.stream()
+                .map(FinancialTransactionMapper::toResponseDTO)
+                .sorted(Comparator.comparing(FinancialTransactionResponseDTO::transactionDate).reversed())
+                .collect(Collectors.toList());
+
+        logger.info("[Dashboard] ✅ Transações mapeadas para DTO: {}", personalTransactions.size());
+
         List<CompanyDashboardDTO> companyDashboards = buildCompanyDashboards(companies, year, month);
 
         ConsolidatedTotalsDTO consolidated = buildConsolidatedTotals(personalTotals, companyDashboards);
 
-        return DashboardResponseDTO.builder()
+        DashboardResponseDTO response = DashboardResponseDTO.builder()
                 .personId(request.getPersonId())
                 .personalSummary(personalSummary)
                 .personalTotals(personalTotals)
@@ -100,9 +162,14 @@ public class DashboardService {
                 .personalMonthlyEvolution(personalMonthlyEvolution)
                 .goalProgress(mainGoalProgress)
                 .personalInvoices(personalInvoices)
+                .personalTransactions(personalTransactions) // ✅ Agora retorna transações do ano
                 .companies(companyDashboards)
                 .consolidatedTotals(consolidated)
                 .build();
+
+        logger.info("[Dashboard] ✅ buildDashboard concluído com sucesso");
+
+        return response;
     }
 
     // ================== BLOCO PESSOAL ==================
@@ -121,7 +188,6 @@ public class DashboardService {
     private TotalsDTO buildTotals(List<FinancialTransaction> monthTx, List<FinancialTransaction> yearTx) {
         BigDecimal monthIncome = sumByType(monthTx, TransactionType.INCOME);
         BigDecimal monthExpenses = sumByType(monthTx, TransactionType.EXPENSE);
-
         BigDecimal yearIncome = sumByType(yearTx, TransactionType.INCOME);
         BigDecimal yearExpenses = sumByType(yearTx, TransactionType.EXPENSE);
 
@@ -163,7 +229,7 @@ public class DashboardService {
 
                     return CategoryBreakdownDTO.builder()
                             .category(entry.getKey())
-                            .total(total)
+                            .total(total)  // ✅ CORRIGIDO: total ao invés de amount
                             .percentage(percentage)
                             .build();
                 })
@@ -227,7 +293,7 @@ public class DashboardService {
                 .title(goal.getTitle())
                 .targetAmount(target)
                 .currentAmount(current)
-                .percentage(percentage)
+                .percentage(percentage)  // ✅ CORRIGIDO: percentage (BigDecimal) ao invés de int
                 .status(goal.getStatus())
                 .build();
     }
@@ -244,6 +310,9 @@ public class DashboardService {
                     return InvoiceSummaryDTO.builder()
                             .creditCardId(inv.getCard().getId().toString())
                             .creditCardName(inv.getCard().getName())
+                            .creditCardBrand(inv.getCard().getBrand())
+                            .creditCardLastFourDigits(inv.getCard().getLastFourDigits())
+                            .personName(inv.getCard().getOwner().getName())
                             .totalAmount(inv.getTotalAmount())
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)
@@ -263,11 +332,6 @@ public class DashboardService {
             return Collections.emptyList();
         }
 
-        // ⚠️ IMPORTANTE:
-        // Neste momento, a entidade FinancialTransaction ainda não está ligada a Company.
-        // Então, por enquanto, vamos retornar empresas com valores zerados / placeholders.
-        // Quando você ligar transações à Company, aqui vira o mirror da lógica pessoal.
-
         return companies.stream()
                 .map(company -> CompanyDashboardDTO.builder()
                         .companyId(company.getId().toString())
@@ -284,9 +348,6 @@ public class DashboardService {
                                 .yearExpenses(BigDecimal.ZERO)
                                 .build())
                         .categoryBreakdown(Collections.emptyList())
-                        .monthlyEvolution(MonthlyEvolutionDTO.builder()
-                                .points(Collections.emptyList())
-                                .build())
                         .invoices(Collections.emptyList())
                         .build())
                 .toList();
@@ -296,40 +357,33 @@ public class DashboardService {
 
     private ConsolidatedTotalsDTO buildConsolidatedTotals(
             TotalsDTO personalTotals,
-            List<CompanyDashboardDTO> companies
+            List<CompanyDashboardDTO> companyDashboards
     ) {
-        BigDecimal personalIncome = personalTotals != null ? personalTotals.getYearIncome() : BigDecimal.ZERO;
-        BigDecimal personalExpenses = personalTotals != null ? personalTotals.getYearExpenses() : BigDecimal.ZERO;
+        BigDecimal totalBalance = personalTotals.getMonthIncome().subtract(personalTotals.getMonthExpenses());
+        BigDecimal totalIncome = personalTotals.getMonthIncome();
+        BigDecimal totalExpense = personalTotals.getMonthExpenses();
 
-        BigDecimal companiesIncome = companies.stream()
-                .map(c -> c.getTotals() != null ? c.getTotals().getYearIncome() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        for (CompanyDashboardDTO comp : companyDashboards) {
+            totalIncome = totalIncome.add(comp.getTotals().getMonthIncome());
+            totalExpense = totalExpense.add(comp.getTotals().getMonthExpenses());
+        }
 
-        BigDecimal companiesExpenses = companies.stream()
-                .map(c -> c.getTotals() != null ? c.getTotals().getYearExpenses() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal totalIncome = personalIncome.add(companiesIncome);
-        BigDecimal totalExpenses = personalExpenses.add(companiesExpenses);
+        totalBalance = totalIncome.subtract(totalExpense);
 
         return ConsolidatedTotalsDTO.builder()
+                .balance(totalBalance)
                 .totalIncome(totalIncome)
-                .totalExpenses(totalExpenses)
-                .balance(totalIncome.subtract(totalExpenses))
+                .totalExpenses(totalExpense)
                 .build();
     }
 
-    // ================== UTIL ==================
+    // ================== HELPERS ==================
 
     private BigDecimal sumByType(List<FinancialTransaction> txs, TransactionType type) {
-        if (txs == null || txs.isEmpty()) return BigDecimal.ZERO;
-
         return txs.stream()
                 .filter(tx -> tx.getType() == type)
                 .map(FinancialTransaction::getAmount)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
-
-
 }
