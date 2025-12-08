@@ -1,5 +1,6 @@
 package com.ella.backend.dto.dashboard;
 
+import com.ella.backend.dto.FinancialTransactionResponseDTO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,6 +23,9 @@ public class DashboardResponseDTO {
     private MonthlyEvolutionDTO personalMonthlyEvolution;
     private GoalProgressDTO goalProgress;
     private List<InvoiceSummaryDTO> personalInvoices;
+    
+    // ✅ NOVO: Lista de transações individuais do período
+    private List<FinancialTransactionResponseDTO> personalTransactions;
 
     // Bloco empresarial (lista de empresas)
     private List<CompanyDashboardDTO> companies;
