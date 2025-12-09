@@ -16,9 +16,11 @@ import com.ella.backend.repositories.InvoiceRepository;
 import com.ella.backend.repositories.PersonRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class DashboardInvoicesService {
 
     private final PersonRepository personRepository;
@@ -30,6 +32,15 @@ public class DashboardInvoicesService {
                 .orElseThrow(() -> new ResourceNotFoundException("Person not found"));
 
         List<Invoice> invoices = invoiceRepository.findByCardOwnerAndMonthAndYear(person, month, year);
+
+        if (log.isInfoEnabled()) {
+            List<String> sample = invoices.stream()
+                .limit(5)
+                .map(inv -> String.format("%s|%s/%s|due=%s|total=%s", inv.getId(), inv.getMonth(), inv.getYear(), inv.getDueDate(), inv.getTotalAmount()))
+                .toList();
+            log.info("[DashboardInvoicesService] personId={} month/year={}/{} invoices={} samples={}",
+                personId, month, year, invoices.size(), sample);
+        }
 
         return buildInvoiceSummaries(invoices);
     }

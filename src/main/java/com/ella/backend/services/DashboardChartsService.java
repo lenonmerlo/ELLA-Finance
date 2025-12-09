@@ -27,9 +27,11 @@ import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class DashboardChartsService {
 
     private final PersonRepository personRepository;
@@ -43,9 +45,19 @@ public class DashboardChartsService {
         LocalDate yearStart = YearMonth.of(year, 1).atDay(1);
         LocalDate yearEnd = YearMonth.of(year, 12).atEndOfMonth();
 
+        log.info("[DashboardChartsService] personId={} year={} range {} -> {}", personId, year, yearStart, yearEnd);
+
         List<FinancialTransaction> yearTx = financialTransactionRepository.findByPersonAndTransactionDateBetween(
                 person, yearStart, yearEnd
         );
+
+        if (log.isInfoEnabled()) {
+            List<String> sample = yearTx.stream()
+                    .limit(5)
+                    .map(tx -> String.format("%s|%s|%s", tx.getTransactionDate(), tx.getType(), tx.getAmount()))
+                    .toList();
+            log.info("[DashboardChartsService] loaded {} txs for charts; samples={}", yearTx.size(), sample);
+        }
 
         MonthlyEvolutionDTO monthlyEvolution = buildMonthlyEvolution(yearTx, year);
         

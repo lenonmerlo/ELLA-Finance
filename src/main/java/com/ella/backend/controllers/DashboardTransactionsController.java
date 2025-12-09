@@ -16,10 +16,12 @@ import com.ella.backend.dto.dashboard.TransactionListDTO;
 import com.ella.backend.services.DashboardTransactionsService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
+@Slf4j
 public class DashboardTransactionsController {
 
     private final DashboardTransactionsService dashboardTransactionsService;
@@ -32,7 +34,9 @@ public class DashboardTransactionsController {
             @RequestParam(defaultValue = "1") int month,
             @RequestParam(defaultValue = "50") int limit
     ) {
+        log.info("[DashboardTransactions] personId={}, year={}, month={}, limit={}", personId, year, month, limit);
         List<FinancialTransactionResponseDTO> transactions = dashboardTransactionsService.getTransactions(personId, year, month, limit);
+        log.info("[DashboardTransactions] loaded {} transactions", transactions.size());
         
         TransactionListDTO response = TransactionListDTO.builder()
                 .transactions(transactions)

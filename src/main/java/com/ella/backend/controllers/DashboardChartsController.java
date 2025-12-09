@@ -13,10 +13,12 @@ import com.ella.backend.dto.dashboard.ChartsDTO;
 import com.ella.backend.services.DashboardChartsService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
+@Slf4j
 public class DashboardChartsController {
 
     private final DashboardChartsService dashboardChartsService;
@@ -28,7 +30,13 @@ public class DashboardChartsController {
             @RequestParam(defaultValue = "2025") int year,
             @RequestParam(required = false) String type
     ) {
+        log.info("[DashboardCharts] personId={}, year={}, type={} ", personId, year, type);
         ChartsDTO charts = dashboardChartsService.getCharts(personId, year);
+        int categories = charts.getCategoryBreakdown() != null ? charts.getCategoryBreakdown().size() : 0;
+        int points = charts.getMonthlyEvolution() != null && charts.getMonthlyEvolution().getPoints() != null
+            ? charts.getMonthlyEvolution().getPoints().size()
+            : 0;
+        log.info("[DashboardCharts] payload points={}, categories={}", points, categories);
         return ResponseEntity.ok(ApiResponse.success(charts, "Charts loaded successfully"));
     }
 }

@@ -16,10 +16,12 @@ import com.ella.backend.dto.dashboard.InvoiceSummaryDTO;
 import com.ella.backend.services.DashboardInvoicesService;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
+@Slf4j
 public class DashboardInvoicesController {
 
     private final DashboardInvoicesService dashboardInvoicesService;
@@ -31,7 +33,9 @@ public class DashboardInvoicesController {
             @RequestParam(defaultValue = "2025") int year,
             @RequestParam(defaultValue = "1") int month
     ) {
+        log.info("[DashboardInvoices] personId={}, year={}, month={}", personId, year, month);
         List<InvoiceSummaryDTO> invoices = dashboardInvoicesService.getInvoices(personId, year, month);
+        log.info("[DashboardInvoices] loaded {} invoices", invoices.size());
         
         InvoiceListDTO response = InvoiceListDTO.builder()
                 .invoices(invoices)

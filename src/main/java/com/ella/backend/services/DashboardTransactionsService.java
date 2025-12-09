@@ -18,9 +18,11 @@ import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class DashboardTransactionsService {
 
     private final PersonRepository personRepository;
@@ -35,6 +37,9 @@ public class DashboardTransactionsService {
         LocalDate monthStart = ym.atDay(1);
         LocalDate monthEnd = ym.atEndOfMonth();
 
+        log.info("[DashboardTransactionsService] personId={} monthStart={} monthEnd={} limit={}", personId,
+                monthStart, monthEnd, limit);
+
         // Note: Ideally we should use a repository method with Pageable for limit,
         // but for now I'll fetch and stream limit to match existing logic style, 
         // or better, just fetch all for the month (usually not that many) and limit.
@@ -44,6 +49,14 @@ public class DashboardTransactionsService {
         List<FinancialTransaction> txs = financialTransactionRepository.findByPersonAndTransactionDateBetween(
                 person, monthStart, monthEnd
         );
+
+        if (log.isInfoEnabled()) {
+            List<String> sample = txs.stream()
+                    .limit(5)
+                    .map(tx -> String.format("%s|%s|%s", tx.getTransactionDate(), tx.getType(), tx.getAmount()))
+                    .toList();
+            log.info("[DashboardTransactionsService] loaded {} txs; samples={} ", txs.size(), sample);
+        }
 
         return txs.stream()
                 .map(FinancialTransactionMapper::toResponseDTO)
