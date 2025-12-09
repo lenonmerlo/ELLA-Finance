@@ -18,6 +18,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.ella.backend.dto.ApiResponse;
 import com.ella.backend.dto.InvoiceRequestDTO;
 import com.ella.backend.dto.InvoiceResponseDTO;
+import com.ella.backend.dto.InvoiceUploadResponseDTO;
 import com.ella.backend.services.InvoiceService;
 import com.ella.backend.services.InvoiceUploadService;
 
@@ -96,7 +97,9 @@ public class InvoiceController {
      */
     @PostMapping("/upload")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<Object>> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<ApiResponse<InvoiceUploadResponseDTO>> upload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "password", required = false) String password) {
         if (file == null || file.isEmpty()) {
             return ResponseEntity.badRequest().body(
                     ApiResponse.error("Arquivo ausente ou vazio")
@@ -104,12 +107,16 @@ public class InvoiceController {
         }
 
         try {
-                var payload = uploadService.parseCsv(file.getInputStream(), file.getOriginalFilename());
+            InvoiceUploadResponseDTO payload = uploadService.processInvoice(file, password);
             return ResponseEntity.status(201).body(
-                    ApiResponse.success(payload, "Upload processado com sucesso (parse CSV básico)")
+                    ApiResponse.success(payload, "Upload processado com sucesso")
+            );
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error(e.getMessage())
             );
         } catch (Exception e) {
-            log.error("Erro ao processar CSV no upload de faturas", e);
+            log.error("Erro ao processar arquivo no upload de faturas", e);
             return ResponseEntity.status(500).body(
                     ApiResponse.error("Erro interno no servidor: " + e.getMessage())
             );
