@@ -2,12 +2,16 @@ package com.ella.backend.services;
 
 import com.ella.backend.dto.FinancialTransactionRequestDTO;
 import com.ella.backend.dto.FinancialTransactionResponseDTO;
+import com.ella.backend.dto.TransactionBulkUpdateItem;
+import com.ella.backend.dto.TransactionBulkUpdateRequest;
+import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.mappers.FinancialTransactionMapper;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.audit.Auditable;
 
 import org.springframework.stereotype.Service;
@@ -23,11 +27,14 @@ public class FinancialTransactionService {
 
     private final FinancialTransactionRepository transactionRepository;
     private final PersonRepository personRepository;
+        private final InstallmentRepository installmentRepository;
 
     public FinancialTransactionService(FinancialTransactionRepository transactionRepository,
-                                       PersonRepository personRepository) {
+                                                                           PersonRepository personRepository,
+                                                                           InstallmentRepository installmentRepository) {
         this.transactionRepository = transactionRepository;
         this.personRepository = personRepository;
+                this.installmentRepository = installmentRepository;
     }
 
     @Auditable(action = "TRANSACTION_CREATED", entityType = "FinancialTransaction")
@@ -97,6 +104,41 @@ public class FinancialTransactionService {
         FinancialTransaction entity = transactionRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
+                // Remove parcelas vinculadas antes de apagar a transação para evitar violação de FK
+                var installments = installmentRepository.findByTransaction(entity);
+                if (installments != null && !installments.isEmpty()) {
+                        installmentRepository.deleteAll(installments);
+                }
+
         transactionRepository.delete(entity);
     }
+
+        @Auditable(action = "TRANSACTION_BULK_UPDATED", entityType = "FinancialTransaction")
+        public List<FinancialTransactionResponseDTO> bulkUpdate(TransactionBulkUpdateRequest request) {
+                UUID personUuid = UUID.fromString(request.personId());
+                Person person = personRepository.findById(personUuid)
+                                .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
+
+                return request.updates().stream().map(item -> {
+                        UUID txId = UUID.fromString(item.id());
+                        FinancialTransaction entity = transactionRepository.findById(txId)
+                                        .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
+
+                        if (!entity.getPerson().getId().equals(person.getId())) {
+                                throw new ResourceNotFoundException("Transação não pertence à pessoa informada");
+                        }
+
+                        if (item.category() != null && !item.category().isBlank()) {
+                                entity.setCategory(item.category());
+                        }
+                        if (item.scope() != null) {
+                                entity.setScope(item.scope());
+                        } else if (entity.getScope() == null) {
+                                entity.setScope(TransactionScope.PERSONAL);
+                        }
+
+                        FinancialTransaction saved = transactionRepository.save(entity);
+                        return FinancialTransactionMapper.toResponseDTO(saved);
+                }).toList();
+        }
 }

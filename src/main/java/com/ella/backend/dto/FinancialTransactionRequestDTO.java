@@ -2,6 +2,7 @@ package com.ella.backend.dto;
 
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
+import com.ella.backend.enums.TransactionScope;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
@@ -21,6 +22,8 @@ public record FinancialTransactionRequestDTO(
 
         @NotNull(message = "Tipo é obrigatório")
         TransactionType type,
+
+        TransactionScope scope,
 
         @NotBlank(message = "Categoria é obrigatória")
         String category,

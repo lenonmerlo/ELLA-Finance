@@ -1,5 +1,6 @@
 package com.ella.backend.entities;
 
+import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
 import jakarta.persistence.*;
@@ -51,6 +52,11 @@ public class FinancialTransaction {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private TransactionType type;
+
+        @Enumerated(EnumType.STRING)
+        @Column(nullable = false)
+        @Builder.Default
+        private TransactionScope scope = TransactionScope.PERSONAL;
 
     @Column(nullable = false)
     private String category;

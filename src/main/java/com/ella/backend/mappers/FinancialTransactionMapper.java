@@ -4,6 +4,7 @@ import com.ella.backend.dto.FinancialTransactionRequestDTO;
 import com.ella.backend.dto.FinancialTransactionResponseDTO;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
+import com.ella.backend.enums.TransactionScope;
 
 public class FinancialTransactionMapper {
 
@@ -15,6 +16,7 @@ public class FinancialTransactionMapper {
                 .description(dto.description())
                 .amount(dto.amount())
                 .type(dto.type())
+            .scope(dto.scope() != null ? dto.scope() : TransactionScope.PERSONAL)
                 .category(dto.category())
                 .transactionDate(dto.transactionDate())
                 .dueDate(dto.dueDate())
@@ -28,6 +30,7 @@ public class FinancialTransactionMapper {
         entity.setDescription(dto.description());
         entity.setAmount(dto.amount());
         entity.setType(dto.type());
+        entity.setScope(dto.scope() != null ? dto.scope() : TransactionScope.PERSONAL);
         entity.setCategory(dto.category());
         entity.setTransactionDate(dto.transactionDate());
         entity.setDueDate(dto.dueDate());
@@ -43,6 +46,7 @@ public class FinancialTransactionMapper {
                 entity.getDescription(),
                 entity.getAmount(),
                 entity.getType(),
+                entity.getScope(),
                 entity.getCategory(),
                 entity.getTransactionDate(),
                 entity.getDueDate(),

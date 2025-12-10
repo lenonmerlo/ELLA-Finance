@@ -21,6 +21,13 @@ public interface FinancialTransactionRepository extends JpaRepository<FinancialT
             LocalDate endDate
     );
 
+    Page<FinancialTransaction> findByPersonAndTransactionDateBetween(
+            Person person,
+            LocalDate startDate,
+            LocalDate endDate,
+            Pageable pageable
+    );
+
     Page<FinancialTransaction> findByPersonAndType(
             Person person,
             TransactionType type,

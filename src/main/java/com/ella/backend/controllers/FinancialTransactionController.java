@@ -3,6 +3,7 @@ package com.ella.backend.controllers;
 import com.ella.backend.dto.ApiResponse;
 import com.ella.backend.dto.FinancialTransactionRequestDTO;
 import com.ella.backend.dto.FinancialTransactionResponseDTO;
+import com.ella.backend.dto.TransactionBulkUpdateRequest;
 import com.ella.backend.services.FinancialTransactionService;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -74,5 +75,14 @@ public class FinancialTransactionController {
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
         service.delete(id);
         return ResponseEntity.ok(ApiResponse.success(null, "Transação removida com sucesso"));
+    }
+
+    @PostMapping("/bulk-update")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessTransactionsOfPerson(#request.personId)")
+    public ResponseEntity<ApiResponse<List<FinancialTransactionResponseDTO>>> bulkUpdate(
+            @Valid @RequestBody TransactionBulkUpdateRequest request
+    ) {
+        List<FinancialTransactionResponseDTO> updated = service.bulkUpdate(request);
+        return ResponseEntity.ok(ApiResponse.success(updated, "Transações atualizadas"));
     }
 }
