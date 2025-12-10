@@ -8,6 +8,10 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import com.ella.backend.dto.FinancialTransactionResponseDTO;
 import com.ella.backend.entities.FinancialTransaction;
@@ -16,6 +20,7 @@ import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.mappers.FinancialTransactionMapper;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.dto.dashboard.TransactionListDTO;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,40 +33,64 @@ public class DashboardTransactionsService {
     private final PersonRepository personRepository;
     private final FinancialTransactionRepository financialTransactionRepository;
 
-    public List<FinancialTransactionResponseDTO> getTransactions(String personId, int year, int month, int limit) {
+    public TransactionListDTO getTransactions(
+            String personId,
+            Integer year,
+            Integer month,
+            LocalDate start,
+            LocalDate end,
+            int page,
+            int size
+    ) {
         UUID personUuid = UUID.fromString(personId);
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Person not found"));
 
-        YearMonth ym = YearMonth.of(year, month);
-        LocalDate monthStart = ym.atDay(1);
-        LocalDate monthEnd = ym.atEndOfMonth();
+                LocalDate startDate = start;
+                LocalDate endDate = end;
 
-        log.info("[DashboardTransactionsService] personId={} monthStart={} monthEnd={} limit={}", personId,
-                monthStart, monthEnd, limit);
+                if (startDate != null && endDate == null) {
+                        endDate = startDate;
+                } else if (endDate != null && startDate == null) {
+                        startDate = endDate;
+                }
 
-        // Note: Ideally we should use a repository method with Pageable for limit,
-        // but for now I'll fetch and stream limit to match existing logic style, 
-        // or better, just fetch all for the month (usually not that many) and limit.
-        // If the user wants "transactions" generally (not just month), the query might need adjustment.
-        // The user prompt said: GET /api/dashboard/{personId}/transactions?year=2025&month=12&limit=50
-        
-        List<FinancialTransaction> txs = financialTransactionRepository.findByPersonAndTransactionDateBetween(
-                person, monthStart, monthEnd
-        );
+                if (startDate == null || endDate == null) {
+                        int safeYear = year != null ? year : LocalDate.now().getYear();
+                        int safeMonth = month != null ? month : LocalDate.now().getMonthValue();
+                        YearMonth ym = YearMonth.of(safeYear, safeMonth);
+                        startDate = ym.atDay(1);
+                        endDate = ym.atEndOfMonth();
+                }
 
-        if (log.isInfoEnabled()) {
-            List<String> sample = txs.stream()
-                    .limit(5)
-                    .map(tx -> String.format("%s|%s|%s", tx.getTransactionDate(), tx.getType(), tx.getAmount()))
-                    .toList();
-            log.info("[DashboardTransactionsService] loaded {} txs; samples={} ", txs.size(), sample);
-        }
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
+                Sort.by(Sort.Direction.DESC, "transactionDate"));
 
-        return txs.stream()
+        log.info("[DashboardTransactionsService] personId={} startDate={} endDate={} page={} size={}", personId,
+                startDate, endDate, page, size);
+
+        Page<FinancialTransaction> txPage = financialTransactionRepository
+                .findByPersonAndTransactionDateBetween(person, startDate, endDate, pageable);
+
+        List<FinancialTransactionResponseDTO> transactions = txPage.getContent().stream()
                 .map(FinancialTransactionMapper::toResponseDTO)
                 .sorted(Comparator.comparing(FinancialTransactionResponseDTO::transactionDate).reversed())
-                .limit(limit > 0 ? limit : Long.MAX_VALUE)
                 .collect(Collectors.toList());
+
+        if (log.isInfoEnabled()) {
+            List<String> sample = transactions.stream()
+                    .limit(5)
+                    .map(tx -> String.format("%s|%s|%s", tx.transactionDate(), tx.type(), tx.amount()))
+                    .toList();
+            log.info("[DashboardTransactionsService] loaded {} txs; samples={} ", txPage.getNumberOfElements(), sample);
+        }
+
+        return TransactionListDTO.builder()
+                .transactions(transactions)
+                .page(txPage.getNumber())
+                .size(txPage.getSize())
+                .totalElements(txPage.getTotalElements())
+                .totalPages(txPage.getTotalPages())
+                .build();
     }
 }

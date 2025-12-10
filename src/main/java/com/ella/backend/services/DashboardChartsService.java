@@ -37,38 +37,40 @@ public class DashboardChartsService {
     private final PersonRepository personRepository;
     private final FinancialTransactionRepository financialTransactionRepository;
 
-    public ChartsDTO getCharts(String personId, int year) {
+        public ChartsDTO getCharts(String personId, int year, Integer month) {
         UUID personUuid = UUID.fromString(personId);
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Person not found"));
 
-        LocalDate yearStart = YearMonth.of(year, 1).atDay(1);
-        LocalDate yearEnd = YearMonth.of(year, 12).atEndOfMonth();
+                YearMonth target = month != null && month >= 1 && month <= 12 ? YearMonth.of(year, month) : null;
+                LocalDate rangeStart;
+                LocalDate rangeEnd;
 
-        log.info("[DashboardChartsService] personId={} year={} range {} -> {}", personId, year, yearStart, yearEnd);
+                if (target != null) {
+                        YearMonth windowStartYm = target.minusMonths(5);
+                        rangeStart = windowStartYm.atDay(1);
+                        rangeEnd = target.atEndOfMonth();
+                } else {
+                        rangeStart = YearMonth.of(year, 1).atDay(1);
+                        rangeEnd = YearMonth.of(year, 12).atEndOfMonth();
+                }
 
-        List<FinancialTransaction> yearTx = financialTransactionRepository.findByPersonAndTransactionDateBetween(
-                person, yearStart, yearEnd
-        );
+                log.info("[DashboardChartsService] personId={} year={} month={} range {} -> {}", personId, year, month, rangeStart, rangeEnd);
+
+                List<FinancialTransaction> txs = financialTransactionRepository.findByPersonAndTransactionDateBetween(
+                                person, rangeStart, rangeEnd
+                );
 
         if (log.isInfoEnabled()) {
-            List<String> sample = yearTx.stream()
+                        List<String> sample = txs.stream()
                     .limit(5)
                     .map(tx -> String.format("%s|%s|%s", tx.getTransactionDate(), tx.getType(), tx.getAmount()))
                     .toList();
-            log.info("[DashboardChartsService] loaded {} txs for charts; samples={}", yearTx.size(), sample);
+                        log.info("[DashboardChartsService] loaded {} txs for charts; samples={}", txs.size(), sample);
         }
 
-        MonthlyEvolutionDTO monthlyEvolution = buildMonthlyEvolution(yearTx, year);
-        
-        // For category breakdown, usually it's for a specific month, but the request only has year?
-        // The user prompt said: GET /api/dashboard/{personId}/charts?year=2025&type=monthly
-        // And the response example showed category breakdown.
-        // If it's for the whole year, we use yearTx. If it's for a month, we need month param.
-        // I'll assume it's for the whole year if no month is provided, or I should add month param.
-        // The user prompt didn't specify month in the charts request, only year.
-        // So I'll calculate category breakdown for the whole year.
-        List<CategoryBreakdownDTO> categoryBreakdown = buildCategoryBreakdown(yearTx);
+                MonthlyEvolutionDTO monthlyEvolution = buildMonthlyEvolution(txs, year, target);
+                List<CategoryBreakdownDTO> categoryBreakdown = buildCategoryBreakdown(txs, target);
 
         return ChartsDTO.builder()
                 .monthlyEvolution(monthlyEvolution)
@@ -76,42 +78,67 @@ public class DashboardChartsService {
                 .build();
     }
 
-    private MonthlyEvolutionDTO buildMonthlyEvolution(List<FinancialTransaction> yearTx, int year) {
-        Map<YearMonth, List<FinancialTransaction>> grouped = yearTx.stream()
+        private MonthlyEvolutionDTO buildMonthlyEvolution(List<FinancialTransaction> txs, int year, YearMonth target) {
+                Map<YearMonth, List<FinancialTransaction>> grouped = txs.stream()
                 .filter(tx -> tx.getTransactionDate() != null)
                 .collect(Collectors.groupingBy(
                         tx -> YearMonth.from(tx.getTransactionDate())
                 ));
 
         List<MonthlyPointDTO> points = new ArrayList<>();
+                if (target != null) {
+                        for (int i = 5; i >= 0; i--) {
+                                YearMonth ym = target.minusMonths(i);
+                                List<FinancialTransaction> monthTx = grouped.getOrDefault(ym, Collections.emptyList());
+                                BigDecimal income = sumByType(monthTx, TransactionType.INCOME);
+                                BigDecimal expenses = sumByType(monthTx, TransactionType.EXPENSE);
+                                String label = ym.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
+                                points.add(MonthlyPointDTO.builder()
+                                                .monthLabel(label)
+                                                .income(income)
+                                                .expenses(expenses)
+                                                .build());
+                        }
+                } else {
+                        for (int m = 1; m <= 12; m++) {
+                                YearMonth ym = YearMonth.of(year, m);
+                                List<FinancialTransaction> monthTx = grouped.getOrDefault(ym, Collections.emptyList());
 
-        for (int m = 1; m <= 12; m++) {
-            YearMonth ym = YearMonth.of(year, m);
-            List<FinancialTransaction> txs = grouped.getOrDefault(ym, Collections.emptyList());
+                                BigDecimal income = sumByType(monthTx, TransactionType.INCOME);
+                                BigDecimal expenses = sumByType(monthTx, TransactionType.EXPENSE);
 
-            BigDecimal income = sumByType(txs, TransactionType.INCOME);
-            BigDecimal expenses = sumByType(txs, TransactionType.EXPENSE);
+                                String label = String.format("%04d-%02d", year, m);
 
-            String label = String.format("%04d-%02d", year, m);
-
-            points.add(MonthlyPointDTO.builder()
-                    .monthLabel(label)
-                    .income(income)
-                    .expenses(expenses)
-                    .build());
-        }
+                                points.add(MonthlyPointDTO.builder()
+                                                .monthLabel(label)
+                                                .income(income)
+                                                .expenses(expenses)
+                                                .build());
+                        }
+                }
 
         return MonthlyEvolutionDTO.builder()
                 .points(points)
                 .build();
     }
 
-    private List<CategoryBreakdownDTO> buildCategoryBreakdown(List<FinancialTransaction> txs) {
-        List<FinancialTransaction> expensesTx = txs.stream()
-                .filter(tx -> tx.getType() == TransactionType.EXPENSE)
-                .toList();
+        private List<CategoryBreakdownDTO> buildCategoryBreakdown(List<FinancialTransaction> txs, YearMonth targetMonth) {
+                List<FinancialTransaction> filtered = txs.stream()
+                                .filter(tx -> tx.getType() == TransactionType.EXPENSE)
+                                .filter(tx -> {
+                                        if (targetMonth == null || tx.getTransactionDate() == null) {
+                                                return true;
+                                        }
+                                        YearMonth ym = YearMonth.from(tx.getTransactionDate());
+                                        return ym.equals(targetMonth);
+                                })
+                                .toList();
 
-        BigDecimal totalExpenses = expensesTx.stream()
+                if (filtered.isEmpty()) {
+                        return Collections.emptyList();
+                }
+
+                BigDecimal totalExpenses = filtered.stream()
                 .map(FinancialTransaction::getAmount)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -120,9 +147,9 @@ public class DashboardChartsService {
             return Collections.emptyList();
         }
 
-        Map<String, BigDecimal> byCategory = expensesTx.stream()
+                Map<String, BigDecimal> byCategory = filtered.stream()
                 .collect(Collectors.groupingBy(
-                        FinancialTransaction::getCategory,
+                                                tx -> sanitizeCategory(tx.getCategory()),
                         Collectors.reducing(BigDecimal.ZERO, FinancialTransaction::getAmount, BigDecimal::add)
                 ));
 
@@ -142,6 +169,13 @@ public class DashboardChartsService {
                 .sorted(Comparator.comparing(CategoryBreakdownDTO::getTotal).reversed())
                 .toList();
     }
+
+        private String sanitizeCategory(String category) {
+                if (category == null || category.isBlank()) {
+                        return "Outros";
+                }
+                return category.trim();
+        }
 
     private BigDecimal sumByType(List<FinancialTransaction> txs, TransactionType type) {
         return txs.stream()

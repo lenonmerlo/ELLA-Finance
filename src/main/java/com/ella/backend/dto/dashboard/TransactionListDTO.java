@@ -11,6 +11,8 @@ import lombok.Data;
 @Builder
 public class TransactionListDTO {
     private List<FinancialTransactionResponseDTO> transactions;
-    private int total;
+    private long totalElements;
+    private int totalPages;
     private int page;
+    private int size;
 }

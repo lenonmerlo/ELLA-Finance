@@ -31,6 +31,7 @@ import com.ella.backend.entities.CreditCard;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Invoice;
 import com.ella.backend.entities.User;
+import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
 import com.ella.backend.repositories.CreditCardRepository;
@@ -168,8 +169,9 @@ public class InvoiceUploadService {
                 }
                 
                 String category = categorizeDescription(desc, type);
+                TransactionScope scope = inferScope(desc, null);
                 
-                return new TransactionData(desc, amount.abs(), type, category, date);
+                return new TransactionData(desc, amount.abs(), type, category, date, null, scope);
             }
         } catch (Exception ignored) {}
         return null;
@@ -230,6 +232,7 @@ public class InvoiceUploadService {
                 .description(txData.description)
                 .amount(txData.amount)
                 .type(txData.type)
+                .scope(txData.scope != null ? txData.scope : TransactionScope.PERSONAL)
                 .category(txData.category)
                 .transactionDate(txData.date)
                 .status(TransactionStatus.PENDING)
@@ -245,6 +248,7 @@ public class InvoiceUploadService {
             tx.getDescription(),
             tx.getAmount(),
             tx.getType(),
+            tx.getScope(),
             tx.getCategory(),
             tx.getTransactionDate(),
             tx.getDueDate(),
@@ -362,7 +366,8 @@ public class InvoiceUploadService {
                 // Inverted logic: Positive amount is EXPENSE (Purchase), Negative is INCOME (Payment/Credit)
                 TransactionType type = amount.compareTo(BigDecimal.ZERO) > 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
                 category = normalizeCategory(category);
-                return new TransactionData(description, amount.abs(), type, category, date, cardName);
+                TransactionScope scope = inferScope(description, cardName);
+                return new TransactionData(description, amount.abs(), type, category, date, cardName, scope);
 
             } else if (format == CsvFormat.PORTUGUESE) {
                 if (fields.length < 4) return null;
@@ -373,7 +378,8 @@ public class InvoiceUploadService {
                 // Inverted logic: Positive amount is EXPENSE (Purchase), Negative is INCOME (Payment/Credit)
                 TransactionType type = amount.compareTo(BigDecimal.ZERO) > 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
                 category = normalizeCategory(category);
-                return new TransactionData(description, amount.abs(), type, category, date);
+                TransactionScope scope = inferScope(description, null);
+                return new TransactionData(description, amount.abs(), type, category, date, null, scope);
 
             } else if (format == CsvFormat.ENGLISH) {
                 if (fields.length < 4) return null;
@@ -391,7 +397,8 @@ public class InvoiceUploadService {
                 if (category == null || category.isEmpty()) {
                     category = categorizeDescription(description, type);
                 }
-                return new TransactionData(description, amount, type, category, date);
+                TransactionScope scope = inferScope(description, null);
+                return new TransactionData(description, amount, type, category, date, null, scope);
             }
             return null;
         } catch (Exception e) {
@@ -478,16 +485,33 @@ public class InvoiceUploadService {
             if (d.contains("bonus") || d.contains("bônus")) return "Income";
             return "Income";
         } else {
-            if (d.contains("uber") || d.contains("99") || d.contains("lyft")) return "Transport";
-            if (d.contains("ifood") || d.contains("ubereats") || d.contains("restaurante") || d.contains("pizza")) return "Food";
-            if (d.contains("mercado") || d.contains("supermarket") || d.contains("carrefour") || d.contains("pão de açúcar")) return "Groceries";
-            if (d.contains("netflix") || d.contains("spotify") || d.contains("youtube") || d.contains("prime")) return "Entertainment";
-            if (d.contains("zara") || d.contains("renner") || d.contains("c&a") || d.contains("shein")) return "Clothing";
-            if (d.contains("academia") || d.contains("gym") || d.contains("smartfit")) return "Health";
-            if (d.contains("amazon") || d.contains("mercado livre") || d.contains("shopee")) return "Shopping";
-            if (d.contains("casa") || d.contains("home") || d.contains("aluguel") || d.contains("rent")) return "Housing";
+            if (d.contains("uber") || d.contains("99") || d.contains("lyft") || d.contains("cabify")) return "Transport";
+            if (d.contains("posto") || d.contains("combust") || d.contains("ipiranga") || d.contains("shell")) return "Transport";
+            if (d.contains("ifood") || d.contains("ubereats") || d.contains("restaurante") || d.contains("pizza") || d.contains("padaria")) return "Food";
+            if (d.contains("mercado") || d.contains("supermarket") || d.contains("carrefour") || d.contains("pão de açúcar") || d.contains("assai") || d.contains("atacado")) return "Groceries";
+            if (d.contains("netflix") || d.contains("spotify") || d.contains("youtube") || d.contains("prime") || d.contains("disney")) return "Entertainment";
+            if (d.contains("zara") || d.contains("renner") || d.contains("c&a") || d.contains("shein") || d.contains("roupa")) return "Clothing";
+            if (d.contains("farmac") || d.contains("drog") || d.contains("academia") || d.contains("gym") || d.contains("smartfit")) return "Health";
+            if (d.contains("amazon") || d.contains("mercado livre") || d.contains("shopee") || d.contains("aliexpress")) return "Shopping";
+            if (d.contains("casa") || d.contains("home") || d.contains("aluguel") || d.contains("rent") || d.contains("constru")) return "Housing";
             return "Other";
         }
+    }
+
+    private TransactionScope inferScope(String description, String cardName) {
+        String d = description == null ? "" : description.toLowerCase();
+        String c = cardName == null ? "" : cardName.toLowerCase();
+
+        if (d.contains("cnpj") || d.contains("mei") || d.contains("ltda") || d.contains("eireli")
+                || d.contains("pj") || c.contains("cnpj") || c.contains("pj") || c.contains("empresa")) {
+            return TransactionScope.BUSINESS;
+        }
+
+        if (d.contains("fornecedor") || d.contains("insumo") || d.contains("estoque") || d.contains("maquininha")) {
+            return TransactionScope.BUSINESS;
+        }
+
+        return TransactionScope.PERSONAL;
     }
 
     private enum CsvFormat {
@@ -498,18 +522,20 @@ public class InvoiceUploadService {
         String description;
         BigDecimal amount;
         TransactionType type;
+        TransactionScope scope;
         String category;
         LocalDate date;
         String cardName;
 
         TransactionData(String description, BigDecimal amount, TransactionType type, String category, LocalDate date) {
-            this(description, amount, type, category, date, null);
+            this(description, amount, type, category, date, null, TransactionScope.PERSONAL);
         }
 
-        TransactionData(String description, BigDecimal amount, TransactionType type, String category, LocalDate date, String cardName) {
+        TransactionData(String description, BigDecimal amount, TransactionType type, String category, LocalDate date, String cardName, TransactionScope scope) {
             this.description = description;
             this.amount = amount;
             this.type = type;
+            this.scope = scope;
             this.category = category;
             this.date = date;
             this.cardName = cardName;

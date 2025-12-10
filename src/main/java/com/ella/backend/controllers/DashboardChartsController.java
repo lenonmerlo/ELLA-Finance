@@ -28,10 +28,11 @@ public class DashboardChartsController {
     public ResponseEntity<ApiResponse<ChartsDTO>> getCharts(
             @PathVariable String personId,
             @RequestParam(defaultValue = "2025") int year,
+            @RequestParam(required = false) Integer month,
             @RequestParam(required = false) String type
     ) {
-        log.info("[DashboardCharts] personId={}, year={}, type={} ", personId, year, type);
-        ChartsDTO charts = dashboardChartsService.getCharts(personId, year);
+        log.info("[DashboardCharts] personId={}, year={}, month={}, type={} ", personId, year, month, type);
+        ChartsDTO charts = dashboardChartsService.getCharts(personId, year, month);
         int categories = charts.getCategoryBreakdown() != null ? charts.getCategoryBreakdown().size() : 0;
         int points = charts.getMonthlyEvolution() != null && charts.getMonthlyEvolution().getPoints() != null
             ? charts.getMonthlyEvolution().getPoints().size()

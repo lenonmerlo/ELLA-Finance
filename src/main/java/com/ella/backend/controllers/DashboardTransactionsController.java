@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ella.backend.dto.ApiResponse;
-import com.ella.backend.dto.FinancialTransactionResponseDTO;
 import com.ella.backend.dto.dashboard.TransactionListDTO;
 import com.ella.backend.services.DashboardTransactionsService;
 
@@ -30,19 +29,28 @@ public class DashboardTransactionsController {
     @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessPerson(#personId)")
     public ResponseEntity<ApiResponse<TransactionListDTO>> getTransactions(
             @PathVariable String personId,
-            @RequestParam(defaultValue = "2025") int year,
-            @RequestParam(defaultValue = "1") int month,
-            @RequestParam(defaultValue = "50") int limit
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month,
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size
     ) {
-        log.info("[DashboardTransactions] personId={}, year={}, month={}, limit={}", personId, year, month, limit);
-        List<FinancialTransactionResponseDTO> transactions = dashboardTransactionsService.getTransactions(personId, year, month, limit);
-        log.info("[DashboardTransactions] loaded {} transactions", transactions.size());
-        
-        TransactionListDTO response = TransactionListDTO.builder()
-                .transactions(transactions)
-                .total(transactions.size()) // This is just the count of returned items, not total in DB. For real pagination we need more.
-                .page(1)
-                .build();
+        log.info("[DashboardTransactions] personId={}, year={}, month={}, start={}, end={}, page={}, size={}",
+            personId, year, month, start, end, page, size);
+
+        TransactionListDTO response = dashboardTransactionsService.getTransactions(
+            personId,
+            year,
+            month,
+            start != null ? java.time.LocalDate.parse(start) : null,
+            end != null ? java.time.LocalDate.parse(end) : null,
+            page,
+            size
+        );
+
+        log.info("[DashboardTransactions] loaded {} transactions (page {}/{})", response.getTransactions().size(),
+            response.getPage() + 1, response.getTotalPages());
 
         return ResponseEntity.ok(ApiResponse.success(response, "Transactions loaded successfully"));
     }
