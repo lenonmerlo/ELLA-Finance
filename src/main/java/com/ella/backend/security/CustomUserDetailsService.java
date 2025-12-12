@@ -16,25 +16,27 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
+
     private final UserRepository userRepository;
 
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         User user = userRepository.findByEmail(email).orElseThrow(() ->
-                new UsernameNotFoundException("Usuário não encontrado com o e-mail " + email));
+                new UsernameNotFoundException("Usuário não encontrado com o e-mail " + email)
+        );
 
         List<GrantedAuthority> authorities = List.of(
                 new SimpleGrantedAuthority("ROLE_" + user.getRole().name())
         );
 
-        return org.springframework.security.core.userdetails.User
-                .withUsername(user.getEmail())
-                .password(user.getPassword())
-                .authorities(authorities)
-                .accountExpired(false)
-                .accountLocked(false)
-                .credentialsExpired(false)
-                .disabled(user.getStatus() != Status.ACTIVE)
-                .build();
+        boolean enabled = user.getStatus() == Status.ACTIVE;
+
+        return new CustomUserDetails(
+                user.getId(),
+                user.getEmail(),
+                user.getPassword(),
+                authorities,
+                enabled
+        );
     }
 }

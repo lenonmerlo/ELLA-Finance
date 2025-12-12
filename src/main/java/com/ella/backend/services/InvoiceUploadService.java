@@ -170,8 +170,9 @@ public class InvoiceUploadService {
                 
                 String category = categorizeDescription(desc, type);
                 TransactionScope scope = inferScope(desc, null);
+                InstallmentInfo installment = extractInstallmentInfo(desc);
                 
-                return new TransactionData(desc, amount.abs(), type, category, date, null, scope);
+                return new TransactionData(desc, amount.abs(), type, category, date, null, scope, installment);
             }
         } catch (Exception ignored) {}
         return null;
@@ -190,15 +191,16 @@ public class InvoiceUploadService {
         Map<String, CreditCard> cardCache = new HashMap<>();
 
         for (TransactionData data : transactions) {
-             String cardName = data.cardName != null && !data.cardName.isEmpty() ? data.cardName : inferCardName(originalFilename);
+             CardMetadata cardMetadata = extractCardMetadata(data.cardName, originalFilename);
+             String cacheKey = (cardMetadata.brand() + "|" + (cardMetadata.lastFourDigits() != null ? cardMetadata.lastFourDigits() : cardMetadata.name())).toLowerCase();
              
-             CreditCard card = cardCache.computeIfAbsent(cardName, name -> resolveOrCreateCard(user, name));
+             CreditCard card = cardCache.computeIfAbsent(cacheKey, key -> resolveOrCreateCard(user, cardMetadata));
              
              if (card != null) {
                  Invoice invoice = getOrCreateInvoice(card, data.date);
                  lastInvoice = invoice;
                  
-                 FinancialTransaction tx = saveTransaction(user, data, originalFilename);
+                 FinancialTransaction tx = saveTransaction(user, data, invoice.getDueDate());
                  createOrLinkInstallment(invoice, tx, data);
                  
                  if (data.type == TransactionType.EXPENSE) {
@@ -226,7 +228,12 @@ public class InvoiceUploadService {
                 .build();
     }
 
-    private FinancialTransaction saveTransaction(User user, TransactionData txData, String originalFilename) {
+    private FinancialTransaction saveTransaction(User user, TransactionData txData, LocalDate invoiceDueDate) {
+        LocalDate resolvedDueDate = txData.dueDate != null ? txData.dueDate : invoiceDueDate;
+        if (resolvedDueDate == null) {
+            resolvedDueDate = txData.date;
+        }
+
         FinancialTransaction entity = FinancialTransaction.builder()
                 .person(user)
                 .description(txData.description)
@@ -235,6 +242,7 @@ public class InvoiceUploadService {
                 .scope(txData.scope != null ? txData.scope : TransactionScope.PERSONAL)
                 .category(txData.category)
                 .transactionDate(txData.date)
+                .dueDate(resolvedDueDate)
                 .status(TransactionStatus.PENDING)
                 .build();
         return Objects.requireNonNull(transactionRepository.save(entity));
@@ -259,42 +267,97 @@ public class InvoiceUploadService {
         );
     }
 
-    private CreditCard resolveOrCreateCard(User user, String cardName) {
-        // cardName já foi inferido ou extraído
+    private CreditCard resolveOrCreateCard(User user, CardMetadata cardMetadata) {
         try {
             var cards = creditCardRepository.findByOwner(user);
             if (cards != null) {
+                // Prioriza match por últimos 4 dígitos + bandeira
+                if (cardMetadata.lastFourDigits() != null) {
+                    for (var c : cards) {
+                        if (c.getLastFourDigits() != null
+                                && c.getLastFourDigits().equals(cardMetadata.lastFourDigits())
+                                && equalsIgnoreCase(c.getBrand(), cardMetadata.brand())) {
+                            return c;
+                        }
+                    }
+                }
+
+                // Fallback: nome + bandeira
                 for (var c : cards) {
-                    if (c.getName() != null && c.getName().equalsIgnoreCase(cardName)) {
+                    if (equalsIgnoreCase(c.getName(), cardMetadata.name())
+                            && equalsIgnoreCase(c.getBrand(), cardMetadata.brand())) {
                         return c;
                     }
                 }
             }
         } catch (Exception ignored) {}
-        
+
         CreditCard cc = new CreditCard();
         cc.setOwner(user);
-        cc.setName(cardName);
-        cc.setBrand(cardName);
-        cc.setLastFourDigits("0000");
+        cc.setName(cardMetadata.name());
+        cc.setBrand(cardMetadata.brand());
+        cc.setLastFourDigits(cardMetadata.lastFourDigits());
         cc.setLimitAmount(java.math.BigDecimal.valueOf(10000));
         cc.setClosingDay(5);
         cc.setDueDay(15);
         return creditCardRepository.save(cc);
     }
 
-    private String inferCardName(String filename) {
-        if (filename == null || filename.isBlank()) return "Cartão Padrão";
-        String f = filename.toLowerCase();
-        if (f.contains("nubank")) return "Nubank";
-        if (f.contains("visa")) return "Visa";
-        if (f.contains("mastercard") || f.contains("master")) return "Mastercard";
-        if (f.contains("itau")) return "Itaú";
-        if (f.contains("bradesco")) return "Bradesco";
-        if (f.contains("santander")) return "Santander";
-        if (f.contains("c6")) return "C6 Bank";
-        if (f.contains("inter")) return "Banco Inter";
-        return filename;
+    private CardMetadata extractCardMetadata(String candidateName, String filename) {
+        String metaSource = candidateName != null ? candidateName : "";
+        String brand = detectBrand(metaSource);
+        if (brand == null) {
+            brand = detectBrand(filename);
+        }
+
+        String lastFour = detectLastFour(metaSource);
+        if (lastFour == null) {
+            lastFour = detectLastFour(filename);
+        }
+
+        String name = (candidateName != null && !candidateName.isBlank()) ? candidateName.trim() : null;
+        if (name == null) {
+            name = brand != null ? brand : (filename != null && !filename.isBlank() ? filename : "Cartão Padrão");
+        }
+        if (brand == null) {
+            brand = name;
+        }
+
+        return new CardMetadata(name, brand, lastFour);
+    }
+
+    private String detectBrand(String source) {
+        if (source == null) return null;
+        String s = source.toLowerCase();
+        if (s.contains("visa")) return "Visa";
+        if (s.contains("mastercard") || s.contains("master")) return "Mastercard";
+        if (s.contains("elo")) return "Elo";
+        if (s.contains("amex") || s.contains("american express")) return "Amex";
+        if (s.contains("hipercard")) return "Hipercard";
+        if (s.contains("diners")) return "Diners";
+        if (s.contains("nubank")) return "Nubank";
+        if (s.contains("santander")) return "Santander";
+        if (s.contains("itau")) return "Itaú";
+        if (s.contains("bradesco")) return "Bradesco";
+        if (s.contains("c6")) return "C6 Bank";
+        if (s.contains("inter")) return "Banco Inter";
+        return null;
+    }
+
+    private String detectLastFour(String source) {
+        if (source == null) return null;
+        Pattern lastFourPattern = Pattern.compile("(?:\\u002A{4}|\\*)?\\s*(\\d{4})(?!.*\\d)");
+        Matcher m = lastFourPattern.matcher(source);
+        if (m.find()) {
+            return m.group(1);
+        }
+
+        Pattern finalPattern = Pattern.compile("final\\s*(\\d{4})", Pattern.CASE_INSENSITIVE);
+        Matcher m2 = finalPattern.matcher(source);
+        if (m2.find()) {
+            return m2.group(1);
+        }
+        return null;
     }
 
     private Invoice getOrCreateInvoice(CreditCard card, LocalDate txDate) {
@@ -316,12 +379,40 @@ public class InvoiceUploadService {
     }
 
     private void createOrLinkInstallment(Invoice invoice, FinancialTransaction entity, TransactionData txData) {
+        int installmentNumber = txData.installmentNumber != null ? txData.installmentNumber : 1;
+        int installmentTotal = txData.installmentTotal != null ? txData.installmentTotal : 1;
+        LocalDate installmentDueDate = txData.dueDate != null ? txData.dueDate : invoice.getDueDate();
+        if (installmentDueDate == null) {
+            installmentDueDate = txData.date;
+        }
+
         try {
             var existing = installmentRepository.findByTransaction(entity);
             if (existing != null && !existing.isEmpty()) {
                 var inst = existing.get(0);
+                boolean changed = false;
                 if (!invoice.equals(inst.getInvoice())) {
                     inst.setInvoice(invoice);
+                    changed = true;
+                }
+                if (inst.getNumber() == null || !inst.getNumber().equals(installmentNumber)) {
+                    inst.setNumber(installmentNumber);
+                    changed = true;
+                }
+                if (inst.getTotal() == null || !inst.getTotal().equals(installmentTotal)) {
+                    inst.setTotal(installmentTotal);
+                    changed = true;
+                }
+                if (inst.getAmount() == null || inst.getAmount().compareTo(txData.amount) != 0) {
+                    inst.setAmount(txData.amount);
+                    changed = true;
+                }
+                if (inst.getDueDate() == null || !inst.getDueDate().equals(installmentDueDate)) {
+                    inst.setDueDate(installmentDueDate);
+                    changed = true;
+                }
+
+                if (changed) {
                     installmentRepository.save(inst);
                 }
                 return;
@@ -331,10 +422,10 @@ public class InvoiceUploadService {
         var installment = new com.ella.backend.entities.Installment();
         installment.setInvoice(invoice);
         installment.setTransaction(entity);
-        installment.setNumber(1);
-        installment.setTotal(1);
+        installment.setNumber(installmentNumber);
+        installment.setTotal(installmentTotal);
         installment.setAmount(txData.amount);
-        installment.setDueDate(txData.date);
+        installment.setDueDate(installmentDueDate);
         installmentRepository.save(installment);
     }
 
@@ -367,7 +458,8 @@ public class InvoiceUploadService {
                 TransactionType type = amount.compareTo(BigDecimal.ZERO) > 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
                 category = normalizeCategory(category);
                 TransactionScope scope = inferScope(description, cardName);
-                return new TransactionData(description, amount.abs(), type, category, date, cardName, scope);
+                InstallmentInfo installment = extractInstallmentInfo(description);
+                return new TransactionData(description, amount.abs(), type, category, date, cardName, scope, installment);
 
             } else if (format == CsvFormat.PORTUGUESE) {
                 if (fields.length < 4) return null;
@@ -379,7 +471,8 @@ public class InvoiceUploadService {
                 TransactionType type = amount.compareTo(BigDecimal.ZERO) > 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
                 category = normalizeCategory(category);
                 TransactionScope scope = inferScope(description, null);
-                return new TransactionData(description, amount.abs(), type, category, date, null, scope);
+                InstallmentInfo installment = extractInstallmentInfo(description);
+                return new TransactionData(description, amount.abs(), type, category, date, null, scope, installment);
 
             } else if (format == CsvFormat.ENGLISH) {
                 if (fields.length < 4) return null;
@@ -398,13 +491,41 @@ public class InvoiceUploadService {
                     category = categorizeDescription(description, type);
                 }
                 TransactionScope scope = inferScope(description, null);
-                return new TransactionData(description, amount, type, category, date, null, scope);
+                InstallmentInfo installment = extractInstallmentInfo(description);
+                return new TransactionData(description, amount, type, category, date, null, scope, installment);
             }
             return null;
         } catch (Exception e) {
             System.err.println("[CSV] Erro ao parsear linha: " + line + " - " + e.getMessage());
             return null;
         }
+    }
+
+    private InstallmentInfo extractInstallmentInfo(String description) {
+        if (description == null || description.isBlank()) return null;
+        String normalized = description.toLowerCase();
+
+        Pattern slashPattern = Pattern.compile("(\\d{1,2})\\s*/\\s*(\\d{1,2})");
+        Matcher slashMatcher = slashPattern.matcher(normalized);
+        if (slashMatcher.find()) {
+            int number = Integer.parseInt(slashMatcher.group(1));
+            int total = Integer.parseInt(slashMatcher.group(2));
+            if (number > 0 && total > 0) {
+                return new InstallmentInfo(number, total);
+            }
+        }
+
+        Pattern timesPattern = Pattern.compile("(\\d{1,2})\\s*x\\s*(\\d{1,2})");
+        Matcher timesMatcher = timesPattern.matcher(normalized);
+        if (timesMatcher.find()) {
+            int number = Integer.parseInt(timesMatcher.group(1));
+            int total = Integer.parseInt(timesMatcher.group(2));
+            if (number > 0 && total > 0) {
+                return new InstallmentInfo(number, total);
+            }
+        }
+
+        return null;
     }
 
     private LocalDate parseDate(String dateStr) {
@@ -514,6 +635,12 @@ public class InvoiceUploadService {
         return TransactionScope.PERSONAL;
     }
 
+    private boolean equalsIgnoreCase(String a, String b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.equalsIgnoreCase(b);
+    }
+
     private enum CsvFormat {
         PORTUGUESE, ENGLISH, FULL_EXPORT, UNKNOWN
     }
@@ -525,20 +652,28 @@ public class InvoiceUploadService {
         TransactionScope scope;
         String category;
         LocalDate date;
+        LocalDate dueDate;
         String cardName;
+        Integer installmentNumber;
+        Integer installmentTotal;
 
-        TransactionData(String description, BigDecimal amount, TransactionType type, String category, LocalDate date) {
-            this(description, amount, type, category, date, null, TransactionScope.PERSONAL);
-        }
-
-        TransactionData(String description, BigDecimal amount, TransactionType type, String category, LocalDate date, String cardName, TransactionScope scope) {
+        TransactionData(String description, BigDecimal amount, TransactionType type, String category, LocalDate date, String cardName, TransactionScope scope, InstallmentInfo installmentInfo) {
             this.description = description;
             this.amount = amount;
             this.type = type;
             this.scope = scope;
             this.category = category;
             this.date = date;
+            this.dueDate = null;
             this.cardName = cardName;
+            if (installmentInfo != null) {
+                this.installmentNumber = installmentInfo.number();
+                this.installmentTotal = installmentInfo.total();
+            }
         }
     }
+
+    private record InstallmentInfo(Integer number, Integer total) {}
+
+    private record CardMetadata(String name, String brand, String lastFourDigits) {}
 }

@@ -1,5 +1,7 @@
 package com.ella.backend.services;
 
+import com.ella.backend.email.events.LgpdConsentEmailRequestedEvent;
+import com.ella.backend.email.events.UserRegisteredEvent;
 import com.ella.backend.entities.User;
 import com.ella.backend.enums.Role;
 import com.ella.backend.enums.Status;
@@ -9,6 +11,7 @@ import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.UserRepository;
 import com.ella.backend.audit.Auditable;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +26,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ApplicationEventPublisher publisher;
 
     public List<User> findAll() {
         return userRepository.findAll();
@@ -47,9 +51,27 @@ public class UserService {
         if (userRepository.existsByEmail(user.getEmail())) {
             throw new ConflictException("E-mail já cadastrado");
         }
+
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        return userRepository.save(user);
+
+        User created = userRepository.save(user);
+
+        // 🔔 Eventos de comunicação (async)
+        publisher.publishEvent(new UserRegisteredEvent(
+                created.getId(),
+                created.getName(),
+                created.getEmail()
+        ));
+
+        publisher.publishEvent(new LgpdConsentEmailRequestedEvent(
+                created.getId(),
+                created.getName(),
+                created.getEmail()
+        ));
+
+        return created;
     }
+
 
     @Auditable(action = "USER_UPDATED", entityType = "User")
     public User update(String id, User data) {
