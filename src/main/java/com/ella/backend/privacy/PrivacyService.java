@@ -3,6 +3,7 @@ package com.ella.backend.privacy;
 import com.ella.backend.privacy.dto.ConsentHistoryDTO;
 import com.ella.backend.privacy.dto.ConsentRequestDTO;
 import com.ella.backend.privacy.dto.ConsentResponseDTO;
+import com.ella.backend.privacy.dto.ConsentStatusDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,11 @@ public class PrivacyService {
 
     public boolean hasAnyConsent(UUID userId) {
         return !consentLogRepository.findByUserIdOrderByAcceptedAtDesc(userId).isEmpty();
+    }
+
+    public ConsentStatusDTO getConsentStatus(UUID userId) {
+        boolean hasConsent = hasAnyConsent(userId);
+        return new ConsentStatusDTO(hasConsent, currentContractVersion);
     }
 
 }

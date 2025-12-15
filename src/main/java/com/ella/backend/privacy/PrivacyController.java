@@ -3,6 +3,7 @@ package com.ella.backend.privacy;
 import java.util.List;
 import java.util.UUID;
 
+import com.ella.backend.privacy.dto.ConsentStatusDTO;
 import org.springframework.security.core.Authentication;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -53,6 +54,14 @@ public class PrivacyController {
             return forwarded.split(",")[0].trim();
         }
         return request.getRemoteAddr();
+    }
+
+    @GetMapping("/status")
+    public ConsentStatusDTO status(Authentication authentication) {
+        com.ella.backend.security.CustomUserDetails principal =
+                (com.ella.backend.security.CustomUserDetails) authentication.getPrincipal();
+
+        return privacyService.getConsentStatus(principal.getId());
     }
 
 }
