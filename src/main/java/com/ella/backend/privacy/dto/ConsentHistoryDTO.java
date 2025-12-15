@@ -1,4 +1,7 @@
 package com.ella.backend.privacy.dto;
 
-public class ConsentHistoryDTO {
-}
+import java.time.Instant;
+
+public record ConsentHistoryDTO (String contractVersion,
+                                 Instant acceptedAt,
+                                 String ip) {}

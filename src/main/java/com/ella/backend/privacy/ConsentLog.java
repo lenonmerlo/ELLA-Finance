@@ -26,8 +26,8 @@ public class ConsentLog {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
-        @Column(name = "ip")
-        private String ip;
+    @Column(name = "ip", nullable = false)
+    private String ip;
 
     @Column(name = "contract_version", nullable = false)
     private String contractVersion;

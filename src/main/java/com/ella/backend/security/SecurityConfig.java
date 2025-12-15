@@ -1,7 +1,7 @@
 package com.ella.backend.security;
 
-import com.ella.backend.security.JwtAuthenticationFilter;
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -10,20 +10,18 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 
 @Configuration
 @EnableWebSecurity
@@ -39,6 +37,22 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                                .exceptionHandling(ex -> ex
+                                                .authenticationEntryPoint((request, response, authException) -> {
+                                                        if (!response.isCommitted()) {
+                                                                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                                                response.setContentType("application/json");
+                                                                response.getWriter().write("{\"error\":\"Unauthorized\"}");
+                                                        }
+                                                })
+                                                .accessDeniedHandler((request, response, accessDeniedException) -> {
+                                                        if (!response.isCommitted()) {
+                                                                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                                                                response.setContentType("application/json");
+                                                                response.getWriter().write("{\"error\":\"Forbidden\"}");
+                                                        }
+                                                })
+                                )
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
