@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.ella.backend.classification.ClassificationService;
 import com.ella.backend.dto.FinancialTransactionResponseDTO;
 import com.ella.backend.dto.InvoiceUploadResponseDTO;
 import com.ella.backend.entities.CreditCard;
@@ -49,6 +51,7 @@ public class InvoiceUploadService {
 
     private final FinancialTransactionRepository transactionRepository;
     private final UserService userService;
+    private final ClassificationService classificationService;
     private final CreditCardRepository creditCardRepository;
     private final InvoiceRepository invoiceRepository;
     private final InstallmentRepository installmentRepository;
@@ -61,12 +64,27 @@ public class InvoiceUploadService {
             throw new IllegalArgumentException("Filename cannot be null");
         }
 
+        boolean isPdf = filename.toLowerCase().endsWith(".pdf");
+
         try (InputStream is = file.getInputStream()) {
             List<TransactionData> transactions;
-            if (filename.toLowerCase().endsWith(".pdf")) {
+            if (isPdf) {
                 transactions = parsePdf(is, password);
             } else {
                 transactions = parseCsv(is);
+            }
+
+            if (transactions == null || transactions.isEmpty()) {
+                if (isPdf) {
+                    throw new IllegalArgumentException(
+                            "Não foi possível extrair transações desse PDF. " +
+                                    "Ele pode estar escaneado (imagem), protegido, ou ter um layout ainda não suportado. " +
+                                    "Tente exportar/enviar um CSV, ou um PDF com texto selecionável."
+                    );
+                }
+                throw new IllegalArgumentException(
+                        "Não encontrei transações neste arquivo. Confira se o CSV tem cabeçalho e colunas compatíveis."
+                );
             }
             return processTransactions(transactions, filename);
         } catch (IllegalArgumentException e) {
@@ -109,11 +127,55 @@ public class InvoiceUploadService {
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(document);
             log.info("[InvoiceUpload] PDF extracted sample: {}", (text.length() > 500 ? text.substring(0, 500) : text));
+
+            LocalDate invoiceDueDate = extractInvoiceDueDateFromPdfText(text);
+            if (invoiceDueDate != null) {
+                log.info("[InvoiceUpload] Detected invoice due date: {}", invoiceDueDate);
+            } else {
+                log.warn("[InvoiceUpload] Could not detect invoice due date from PDF text; transactions will fallback to purchase date month.");
+            }
+
+            if (text == null || text.isBlank()) {
+                return transactions;
+            }
             
+            enum PdfSection { NONE, PAYMENTS, PURCHASES, INSTALLMENTS_FUTURE }
+            PdfSection section = PdfSection.NONE;
+
             String[] lines = text.split("\\r?\\n");
             for (String line : lines) {
+                String sectionLine = normalizeSectionLine(line);
+
+                // Itaú (e similares): controla a seção para não importar "próximas faturas"
+                if (sectionLine.contains("pagamentos efetuados")) {
+                    section = PdfSection.PAYMENTS;
+                    continue;
+                }
+                if (sectionLine.contains("lancamentos: compras e saques") || sectionLine.contains("lancamentos: compras e saques")) {
+                    section = PdfSection.PURCHASES;
+                    continue;
+                }
+                if (sectionLine.contains("compras parceladas") || sectionLine.contains("proximas faturas") || sectionLine.contains("proxima fatura")) {
+                    section = PdfSection.INSTALLMENTS_FUTURE;
+                    continue;
+                }
+                if (sectionLine.contains("encargos cobrados nesta fatura")
+                        || sectionLine.contains("novo teto")
+                        || sectionLine.contains("credito rotativo")
+                        || sectionLine.contains("limites de credito")
+                        || sectionLine.startsWith("sac")) {
+                    section = PdfSection.NONE;
+                    continue;
+                }
+
+                boolean shouldParse = (section == PdfSection.PAYMENTS || section == PdfSection.PURCHASES);
+                if (!shouldParse) {
+                    continue;
+                }
+
                 TransactionData data = parsePdfLine(line);
                 if (data != null) {
+                    data.dueDate = invoiceDueDate;
                     transactions.add(data);
                 } else {
                     // Log lines that didn't match to help debugging
@@ -130,6 +192,49 @@ public class InvoiceUploadService {
         }
         log.info("[InvoiceUpload] Total parsed transactions: {}", transactions.size());
         return transactions;
+    }
+
+    private String normalizeSectionLine(String line) {
+        if (line == null) return "";
+        String normalized = Normalizer.normalize(line, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase()
+                .trim();
+        // normaliza múltiplos espaços
+        return normalized.replaceAll("\\s+", " ");
+    }
+
+    private LocalDate extractInvoiceDueDateFromPdfText(String text) {
+        if (text == null || text.isBlank()) return null;
+
+        // Tenta capturar "Vencimento: dd/MM" ou "Vencimento: dd/MM/yyyy" (variações comuns em faturas PT-BR)
+        // Nota: depende do PDF ter texto selecionável (não só imagem).
+        List<Pattern> patterns = List.of(
+            Pattern.compile("(?i)\\bvenc(?:imento)?\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}(?:/\\d{2,4})?)"),
+            Pattern.compile("(?i)\\bvcto\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}(?:/\\d{2,4})?)"),
+            Pattern.compile("(?i)\\bdata\\s+de\\s+venc(?:imento)?\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}(?:/\\d{2,4})?)"),
+            Pattern.compile("(?i)\\bvenc\\.?\\s*[:\\-]?\\s*(\\d{2}/\\d{2}(?:/\\d{2,4})?)")
+        );
+
+        for (Pattern p : patterns) {
+            Matcher m = p.matcher(text);
+            if (m.find()) {
+                String dateStr = m.group(1);
+                try {
+                    if (dateStr.matches("\\d{2}/\\d{2}/\\d{4}")) {
+                        return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+                    }
+                    if (dateStr.matches("\\d{2}/\\d{2}/\\d{2}")) {
+                        // Interpreta yy como 20yy
+                        return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern("dd/MM/yy"));
+                    }
+                    // dd/MM (usa heurística do parseDate existente)
+                    return parseDate(dateStr);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return null;
     }
 
     private TransactionData parsePdfLine(String line) {
@@ -197,10 +302,16 @@ public class InvoiceUploadService {
              CreditCard card = cardCache.computeIfAbsent(cacheKey, key -> resolveOrCreateCard(user, cardMetadata));
              
              if (card != null) {
-                 Invoice invoice = getOrCreateInvoice(card, data.date);
+                 LocalDate invoiceDueDate = data.dueDate;
+                 if (invoiceDueDate == null) {
+                     // Fallback: se não conseguimos extrair vencimento do arquivo, usamos a lógica antiga (baseada na data da compra)
+                     invoiceDueDate = estimateDueDateFromCardAndTxDate(card, data.date);
+                 }
+
+                 Invoice invoice = getOrCreateInvoice(card, invoiceDueDate);
                  lastInvoice = invoice;
                  
-                 FinancialTransaction tx = saveTransaction(user, data, invoice.getDueDate());
+                 FinancialTransaction tx = saveTransaction(user, data, invoiceDueDate);
                  createOrLinkInstallment(invoice, tx, data);
                  
                  if (data.type == TransactionType.EXPENSE) {
@@ -234,18 +345,48 @@ public class InvoiceUploadService {
             resolvedDueDate = txData.date;
         }
 
+        String resolvedCategory = txData.category;
+        if (isUncategorizedCategory(resolvedCategory)) {
+            var suggestion = classificationService.suggest(user.getId(), txData.description, txData.amount, txData.type);
+            resolvedCategory = suggestion.category();
+        }
+
         FinancialTransaction entity = FinancialTransaction.builder()
                 .person(user)
                 .description(txData.description)
                 .amount(txData.amount)
                 .type(txData.type)
                 .scope(txData.scope != null ? txData.scope : TransactionScope.PERSONAL)
-                .category(txData.category)
-                .transactionDate(txData.date)
+                .category(resolvedCategory)
+                // Regra: referência (mês do dashboard) = vencimento da fatura
+                .transactionDate(resolvedDueDate)
+                // Preserva a data original da compra/linha
+                .purchaseDate(txData.date)
                 .dueDate(resolvedDueDate)
                 .status(TransactionStatus.PENDING)
                 .build();
         return Objects.requireNonNull(transactionRepository.save(entity));
+    }
+
+    private boolean isUncategorizedCategory(String category) {
+        if (category == null) return true;
+        String c = category.trim();
+        if (c.isEmpty()) return true;
+        return "Outros".equalsIgnoreCase(c) || "Other".equalsIgnoreCase(c);
+    }
+
+    private LocalDate estimateDueDateFromCardAndTxDate(CreditCard card, LocalDate txDate) {
+        if (txDate == null) return null;
+        Integer dueDay = null;
+        try {
+            dueDay = card != null ? card.getDueDay() : null;
+        } catch (Exception ignored) {}
+
+        int safeDueDay = (dueDay != null && dueDay >= 1 && dueDay <= 28) ? dueDay : 10;
+        LocalDate base = LocalDate.of(txDate.getYear(), txDate.getMonthValue(), 1);
+        LocalDate nextMonth = base.plusMonths(1);
+        int dom = Math.min(safeDueDay, nextMonth.lengthOfMonth());
+        return nextMonth.withDayOfMonth(dom);
     }
 
     private FinancialTransactionResponseDTO mapToDTO(FinancialTransaction tx) {
@@ -259,6 +400,7 @@ public class InvoiceUploadService {
             tx.getScope(),
             tx.getCategory(),
             tx.getTransactionDate(),
+            tx.getPurchaseDate(),
             tx.getDueDate(),
             tx.getPaidDate(),
             tx.getStatus(),
@@ -360,9 +502,11 @@ public class InvoiceUploadService {
         return null;
     }
 
-    private Invoice getOrCreateInvoice(CreditCard card, LocalDate txDate) {
-        int month = txDate.getMonthValue();
-        int year = txDate.getYear();
+    private Invoice getOrCreateInvoice(CreditCard card, LocalDate invoiceDueDate) {
+        final LocalDate resolvedInvoiceDueDate = (invoiceDueDate != null) ? invoiceDueDate : LocalDate.now();
+
+        int month = resolvedInvoiceDueDate.getMonthValue();
+        int year = resolvedInvoiceDueDate.getYear();
         return invoiceRepository
                 .findByCardAndMonthAndYear(card, month, year)
                 .orElseGet(() -> {
@@ -370,8 +514,7 @@ public class InvoiceUploadService {
                     inv.setCard(card);
                     inv.setMonth(month);
                     inv.setYear(year);
-                    LocalDate due = LocalDate.of(year, month, 1).plusMonths(1).withDayOfMonth(Math.min(10, LocalDate.of(year, month, 1).plusMonths(1).lengthOfMonth()));
-                    inv.setDueDate(due);
+                    inv.setDueDate(resolvedInvoiceDueDate);
                     inv.setTotalAmount(BigDecimal.ZERO);
                     inv.setPaidAmount(BigDecimal.ZERO);
                     return invoiceRepository.save(inv);
@@ -587,35 +730,47 @@ public class InvoiceUploadService {
     }
 
     private String normalizeCategory(String category) {
-        if (category == null) return "Other";
-        String c = category.toLowerCase();
-        if (c.contains("transporte")) return "Transport";
-        if (c.contains("alimentação") || c.contains("alimentacao")) return "Food";
-        if (c.contains("entretenimento")) return "Entertainment";
-        if (c.contains("saúde") || c.contains("saude")) return "Health";
-        if (c.contains("compras")) return "Shopping";
-        if (c.contains("casa")) return "Housing";
-        if (c.contains("vestuário") || c.contains("vestuario")) return "Clothing";
+        if (category == null) return "Outros";
+        String c = category.trim().toLowerCase();
+
+        // Normaliza entradas comuns (pt/en) para os rótulos usados no app
+        if (c.contains("transporte") || c.contains("transport")) return "Transporte";
+        if (c.contains("alimentação") || c.contains("alimentacao") || c.contains("food")) return "Alimentação";
+        if (c.contains("mercado") || c.contains("supermerc") || c.contains("grocer")) return "Mercado";
+        if (c.contains("stream") || c.contains("streaming")) return "Streaming";
+        if (c.contains("lazer") || c.contains("entretenimento") || c.contains("entertain")) return "Lazer";
+        if (c.contains("saúde") || c.contains("saude") || c.contains("health") || c.contains("medic")) return "Saúde";
+        if (c.contains("farm") || c.contains("drog") || c.contains("farmácia") || c.contains("farmacia")) return "Farmácia";
+        if (c.contains("internet")) return "Internet";
+        if (c.contains("celular") || c.contains("telefone")) return "Celular";
+        if (c.contains("aluguel") || c.contains("rent")) return "Aluguel";
+        if (c.contains("moradia") || c.contains("housing") || c.contains("casa")) return "Moradia";
+
+        // Fallback
+        if ("other".equals(c) || "outros".equals(c)) return "Outros";
         return category;
     }
 
     private String categorizeDescription(String description, TransactionType type) {
         String d = description == null ? "" : description.toLowerCase();
         if (type == TransactionType.INCOME) {
-            if (d.contains("salary") || d.contains("salário") || d.contains("payroll")) return "Income";
-            if (d.contains("bonus") || d.contains("bônus")) return "Income";
-            return "Income";
+            // Para fatura de cartão, créditos podem ser pagamento/estorno; manter genérico.
+            return "Outros";
         } else {
-            if (d.contains("uber") || d.contains("99") || d.contains("lyft") || d.contains("cabify")) return "Transport";
-            if (d.contains("posto") || d.contains("combust") || d.contains("ipiranga") || d.contains("shell")) return "Transport";
-            if (d.contains("ifood") || d.contains("ubereats") || d.contains("restaurante") || d.contains("pizza") || d.contains("padaria")) return "Food";
-            if (d.contains("mercado") || d.contains("supermarket") || d.contains("carrefour") || d.contains("pão de açúcar") || d.contains("assai") || d.contains("atacado")) return "Groceries";
-            if (d.contains("netflix") || d.contains("spotify") || d.contains("youtube") || d.contains("prime") || d.contains("disney")) return "Entertainment";
-            if (d.contains("zara") || d.contains("renner") || d.contains("c&a") || d.contains("shein") || d.contains("roupa")) return "Clothing";
-            if (d.contains("farmac") || d.contains("drog") || d.contains("academia") || d.contains("gym") || d.contains("smartfit")) return "Health";
-            if (d.contains("amazon") || d.contains("mercado livre") || d.contains("shopee") || d.contains("aliexpress")) return "Shopping";
-            if (d.contains("casa") || d.contains("home") || d.contains("aluguel") || d.contains("rent") || d.contains("constru")) return "Housing";
-            return "Other";
+            if (d.contains("uber") || d.contains(" 99") || d.contains("99 ") || d.contains("cabify")) return "Transporte";
+            if (d.contains("posto") || d.contains("combust") || d.contains("ipiranga") || d.contains("shell") || d.contains("petro")) return "Transporte";
+            if (d.contains("ifood") || d.contains("ubereats") || d.contains("restaurante") || d.contains("pizza") || d.contains("padaria") || d.contains("lanchonete")) return "Alimentação";
+            if (d.contains("mercado") || d.contains("supermerc") || d.contains("carrefour") || d.contains("pão de açúcar") || d.contains("pao de acucar") || d.contains("assai") || d.contains("atacado")) return "Mercado";
+            if (d.contains("netflix") || d.contains("spotify") || d.contains("youtube") || d.contains("prime") || d.contains("disney") || d.contains("hbo")) return "Streaming";
+            if (d.contains("farmac") || d.contains("drog") || d.contains("droga") || d.contains("drogaria")) return "Farmácia";
+            if (d.contains("hospital") || d.contains("clinica") || d.contains("consulta") || d.contains("medic") || d.contains("otica") || d.contains("ótica")) return "Saúde";
+            if (d.contains("academia") || d.contains("gym") || d.contains("smartfit") || d.contains("bluefit")) return "Lazer";
+            if (d.contains("internet")) return "Internet";
+            if (d.contains("telefone") || d.contains("celular")) return "Celular";
+            if (d.contains("aluguel") || d.contains("rent")) return "Aluguel";
+            if (d.contains("agua") || d.contains("água")) return "Água";
+            if (d.contains("energia") || d.contains("luz")) return "Luz";
+            return "Outros";
         }
     }
 

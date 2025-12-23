@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.ella.backend.audit.Auditable;
+import com.ella.backend.dto.InvoicePaymentDTO;
 import com.ella.backend.dto.InvoiceRequestDTO;
 import com.ella.backend.dto.InvoiceResponseDTO;
 import com.ella.backend.entities.CreditCard;
@@ -105,6 +106,27 @@ public class InvoiceService {
         return toDTO(invoice);
     }
 
+    @Auditable(action = "INVOICE_PAYMENT_UPDATED", entityType = "Invoice")
+    public InvoiceResponseDTO updatePayment(String id, InvoicePaymentDTO dto) {
+        Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
+                .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
+
+        boolean paid = Boolean.TRUE.equals(dto.getPaid());
+        if (paid) {
+            invoice.setStatus(InvoiceStatus.PAID);
+            invoice.setPaidAmount(invoice.getTotalAmount() != null ? invoice.getTotalAmount() : invoice.getPaidAmount());
+            invoice.setPaidDate(dto.getPaidDate());
+        } else {
+            // volta para aberto; mantém totalAmount
+            invoice.setStatus(InvoiceStatus.OPEN);
+            invoice.setPaidAmount(java.math.BigDecimal.ZERO);
+            invoice.setPaidDate(null);
+        }
+
+        invoice = invoiceRepository.save(invoice);
+        return toDTO(invoice);
+    }
+
     @Auditable(action = "INVOICE_DELETED", entityType = "Invoice")
     public void delete(String id) {
         Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
@@ -123,6 +145,7 @@ public class InvoiceService {
         dto.setDueDate(invoice.getDueDate());
         dto.setTotalAmount(invoice.getTotalAmount());
         dto.setPaidAmount(invoice.getPaidAmount());
+        dto.setPaidDate(invoice.getPaidDate());
         dto.setStatus(invoice.getStatus());
         dto.setCreatedAt(invoice.getCreatedAt());
         dto.setUpdatedAt(invoice.getUpdatedAt());

@@ -307,7 +307,10 @@ public class DashboardService {
                             && inv.getDueDate() != null
                             && inv.getDueDate().isBefore(today);
 
+                    boolean isPaid = inv.getStatus() == InvoiceStatus.PAID;
+
                     return InvoiceSummaryDTO.builder()
+                            .invoiceId(inv.getId().toString())
                             .creditCardId(inv.getCard().getId().toString())
                             .creditCardName(inv.getCard().getName())
                             .creditCardBrand(inv.getCard().getBrand())
@@ -316,6 +319,8 @@ public class DashboardService {
                             .totalAmount(inv.getTotalAmount())
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)
+                            .isPaid(isPaid)
+                            .paidDate(inv.getPaidDate())
                             .build();
                 })
                 .toList();
