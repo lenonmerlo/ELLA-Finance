@@ -1,4 +1,4 @@
-CREATE TABLE consent_log (
+CREATE TABLE IF NOT EXISTS consent_log (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL,
   ip VARCHAR(64),
@@ -6,5 +6,5 @@ CREATE TABLE consent_log (
   accepted_at TIMESTAMP NOT NULL
 );
 
-CREATE INDEX idx_consent_user_id ON consent_log(user_id);
-CREATE INDEX idx_consent_accepted_at ON consent_log(accepted_at);
+CREATE INDEX IF NOT EXISTS idx_consent_user_id ON consent_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_consent_accepted_at ON consent_log(accepted_at);

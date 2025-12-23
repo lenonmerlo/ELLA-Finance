@@ -1,16 +1,24 @@
 package com.ella.backend.security;
 
-import com.ella.backend.entities.*;
-import com.ella.backend.enums.Role;
-import com.ella.backend.repositories.*;
-import com.ella.backend.services.UserService;
-import lombok.RequiredArgsConstructor;
+import java.util.UUID;
+
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
+import com.ella.backend.entities.User;
+import com.ella.backend.enums.Role;
+import com.ella.backend.repositories.CompanyRepository;
+import com.ella.backend.repositories.CreditCardRepository;
+import com.ella.backend.repositories.ExpenseRepository;
+import com.ella.backend.repositories.FinancialTransactionRepository;
+import com.ella.backend.repositories.GoalRepository;
+import com.ella.backend.repositories.InvoiceRepository;
+import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.services.UserService;
+
+import lombok.RequiredArgsConstructor;
 
 @Component
 @RequiredArgsConstructor
@@ -21,6 +29,7 @@ public class SecurityService {
     private final FinancialTransactionRepository financialTransactionRepository;
     private final CompanyRepository companyRepository;
     private final CreditCardRepository creditCardRepository;
+    private final InvoiceRepository invoiceRepository;
     private final GoalRepository goalRepository;
     private final ExpenseRepository expenseRepository;
 
@@ -134,6 +143,14 @@ public class SecurityService {
     // CreditCard
     // =========================================================
 
+    /**
+     * Alias para compatibilidade com anotações existentes.
+     * Alguns controllers usam canAccessCard(...).
+     */
+    public boolean canAccessCard(String cardId) {
+        return canAccessCreditCard(cardId);
+    }
+
     public boolean canAccessCreditCard(String cardId) {
         User user = getAuthenticatedUserOrThrow();
         if (isAdmin(user)) return true;
@@ -145,6 +162,26 @@ public class SecurityService {
                             card.getOwner() != null &&
                                     card.getOwner().getId().equals(user.getId())
                     )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    // =========================================================
+    // Invoice
+    // =========================================================
+
+    public boolean canAccessInvoice(String invoiceId) {
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
+
+        try {
+            UUID uuid = UUID.fromString(invoiceId);
+            return invoiceRepository.findById(uuid)
+                    .map(inv -> inv.getCard() != null
+                            && inv.getCard().getOwner() != null
+                            && inv.getCard().getOwner().getId().equals(user.getId()))
                     .orElse(false);
         } catch (IllegalArgumentException e) {
             return false;
