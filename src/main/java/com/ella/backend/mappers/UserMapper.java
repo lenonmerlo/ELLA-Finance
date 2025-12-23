@@ -1,11 +1,11 @@
 package com.ella.backend.mappers;
 
+import java.time.ZoneId;
+import java.util.Base64;
+
 import com.ella.backend.dto.UserRequestDTO;
 import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
-
-import java.time.Instant;
-import java.time.ZoneId;
 
 public class UserMapper {
 
@@ -75,6 +75,11 @@ public class UserMapper {
         // User
         dto.setEmail(u.getEmail());
         dto.setRole(u.getRole());
+
+        if (u.getAvatar() != null && u.getAvatar().length > 0 && u.getAvatarContentType() != null) {
+            String base64 = Base64.getEncoder().encodeToString(u.getAvatar());
+            dto.setAvatarDataUrl("data:" + u.getAvatarContentType() + ";base64," + base64);
+        }
 
         dto.setCreatedAt(u.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant());
         dto.setUpdatedAt(u.getUpdatedAt().atZone(ZoneId.systemDefault()).toInstant());

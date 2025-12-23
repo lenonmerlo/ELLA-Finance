@@ -1,5 +1,15 @@
 package com.ella.backend.services;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import com.ella.backend.audit.Auditable;
 import com.ella.backend.email.events.LgpdConsentEmailRequestedEvent;
 import com.ella.backend.email.events.UserRegisteredEvent;
 import com.ella.backend.entities.User;
@@ -9,16 +19,8 @@ import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ConflictException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.UserRepository;
-import com.ella.backend.audit.Auditable;
-import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -85,7 +87,9 @@ public class UserService {
 
         // Campos de User
         existing.setEmail(data.getEmail());
-        existing.setRole(data.getRole());
+        if (data.getRole() != null) {
+            existing.setRole(data.getRole());
+        }
 
         // Campos herdados de Person (mas o Lombok gera os getters/setters normalmente)
         existing.setName(data.getName());
@@ -98,14 +102,36 @@ public class UserService {
         existing.setCurrency(data.getCurrency());
         existing.setPlan(data.getPlan());
 
-        // Se vier senha nova, atualiza e encripta. Se vier null / vazio, mantém a antiga.
-        if (data.getPassword() != null && !data.getPassword().isBlank()) {
-            existing.setPassword(passwordEncoder.encode(data.getPassword()));
+        // Se vier senha nova, atualiza e encripta.
+        // IMPORTANTE: não re-encodar a senha já criptografada (isso quebra o login).
+        String incomingPassword = data.getPassword();
+        if (incomingPassword != null && !incomingPassword.isBlank()
+                && (existing.getPassword() == null || !incomingPassword.equals(existing.getPassword()))) {
+            existing.setPassword(passwordEncoder.encode(incomingPassword));
         }
 
         validateUserBusinessRules(existing, false);
 
         return userRepository.save(existing);
+    }
+
+    @Auditable(action = "USER_AVATAR_UPDATED", entityType = "User")
+    public User updateAvatar(String id, byte[] avatar, String contentType) {
+        User existing = findById(id);
+        existing.setAvatar(avatar);
+        existing.setAvatarContentType(contentType);
+        return userRepository.save(existing);
+    }
+
+    @Auditable(action = "USER_PASSWORD_UPDATED", entityType = "User")
+    public void updatePassword(String id, String rawPassword) {
+        if (rawPassword == null || rawPassword.isBlank()) {
+            throw new BadRequestException("Senha é obrigatória");
+        }
+
+        User existing = findById(id);
+        existing.setPassword(passwordEncoder.encode(rawPassword));
+        userRepository.save(existing);
     }
 
     @Auditable(action = "USER_DELETED", entityType = "User")

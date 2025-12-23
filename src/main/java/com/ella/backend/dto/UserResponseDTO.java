@@ -1,11 +1,16 @@
 package com.ella.backend.dto;
 
-import com.ella.backend.enums.*;
-import lombok.Data;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+
+import com.ella.backend.enums.Currency;
+import com.ella.backend.enums.Language;
+import com.ella.backend.enums.Plan;
+import com.ella.backend.enums.Role;
+import com.ella.backend.enums.Status;
+
+import lombok.Data;
 
 @Data
 public class UserResponseDTO {
@@ -26,6 +31,9 @@ public class UserResponseDTO {
     // User
     private String email;
     private Role role;
+
+    // Avatar (data URL: data:<mime>;base64,<...>)
+    private String avatarDataUrl;
 
     private Instant createdAt;
     private Instant updatedAt;
