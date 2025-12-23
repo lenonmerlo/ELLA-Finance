@@ -14,6 +14,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class InvoiceSummaryDTO {
 
+    private String invoiceId;
+
     private String creditCardId;
     private String creditCardName;
     private String creditCardBrand;
@@ -24,4 +26,7 @@ public class InvoiceSummaryDTO {
     private LocalDate dueDate;
 
     private Boolean isOverdue;
+
+    private Boolean isPaid;
+    private LocalDate paidDate;
 }

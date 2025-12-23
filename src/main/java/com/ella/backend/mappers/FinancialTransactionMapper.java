@@ -49,6 +49,7 @@ public class FinancialTransactionMapper {
                 entity.getScope(),
                 entity.getCategory(),
                 entity.getTransactionDate(),
+                entity.getPurchaseDate(),
                 entity.getDueDate(),
                 entity.getPaidDate(),
                 entity.getStatus(),

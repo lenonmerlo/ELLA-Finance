@@ -54,6 +54,8 @@ public class Invoice {
     @Column(nullable = false)
     private BigDecimal paidAmount = BigDecimal.ZERO;
 
+    private LocalDate paidDate;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InvoiceStatus status = InvoiceStatus.OPEN;

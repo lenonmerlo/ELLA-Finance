@@ -1,12 +1,12 @@
 package com.ella.backend.dto;
 
-import com.ella.backend.enums.TransactionStatus;
-import com.ella.backend.enums.TransactionType;
-import com.ella.backend.enums.TransactionScope;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+
+import com.ella.backend.enums.TransactionScope;
+import com.ella.backend.enums.TransactionStatus;
+import com.ella.backend.enums.TransactionType;
 
 public record FinancialTransactionResponseDTO(
         String id,
@@ -18,6 +18,7 @@ public record FinancialTransactionResponseDTO(
         TransactionScope scope,
         String category,
         LocalDate transactionDate,
+        LocalDate purchaseDate,
         LocalDate dueDate,
         LocalDate paidDate,
         TransactionStatus status,

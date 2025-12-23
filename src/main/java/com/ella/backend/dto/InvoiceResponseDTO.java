@@ -25,6 +25,8 @@ public class InvoiceResponseDTO {
     private BigDecimal totalAmount;
     private BigDecimal paidAmount;
 
+    private LocalDate paidDate;
+
     private InvoiceStatus status;
 
     private LocalDateTime createdAt;

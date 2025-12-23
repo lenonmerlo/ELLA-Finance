@@ -1,18 +1,34 @@
 package com.ella.backend.entities;
 
-import com.ella.backend.enums.TransactionScope;
-import com.ella.backend.enums.TransactionStatus;
-import com.ella.backend.enums.TransactionType;
-import jakarta.persistence.*;
-import jakarta.persistence.Index;
-import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import com.ella.backend.enums.TransactionScope;
+import com.ella.backend.enums.TransactionStatus;
+import com.ella.backend.enums.TransactionType;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(
@@ -63,6 +79,9 @@ public class FinancialTransaction {
 
     @Column(nullable = false)
     private LocalDate transactionDate;
+
+        /** Data original da compra/lançamento na fatura (quando aplicável). */
+        private LocalDate purchaseDate;
 
     private LocalDate dueDate;
     private LocalDate paidDate;
