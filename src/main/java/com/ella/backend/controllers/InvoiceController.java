@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.ella.backend.dto.ApiResponse;
+import com.ella.backend.dto.InvoicePaymentDTO;
 import com.ella.backend.dto.InvoiceRequestDTO;
 import com.ella.backend.dto.InvoiceResponseDTO;
 import com.ella.backend.dto.InvoiceUploadResponseDTO;
@@ -71,6 +72,16 @@ public class InvoiceController {
                                                                   @Valid @RequestBody InvoiceRequestDTO dto) {
         InvoiceResponseDTO updated = invoiceService.update(id, dto);
         return ResponseEntity.ok(ApiResponse.success(updated, "Fautra atualizada com sucesso"));
+    }
+
+    @PutMapping("/{id}/payment")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInvoice(#id)")
+    public ResponseEntity<ApiResponse<InvoiceResponseDTO>> updatePayment(
+            @PathVariable String id,
+            @Valid @RequestBody InvoicePaymentDTO dto
+    ) {
+        InvoiceResponseDTO updated = invoiceService.updatePayment(id, dto);
+        return ResponseEntity.ok(ApiResponse.success(updated, "Pagamento da fatura atualizado"));
     }
 
     @DeleteMapping("/{id}")
