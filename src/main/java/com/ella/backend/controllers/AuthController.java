@@ -1,27 +1,35 @@
 package com.ella.backend.controllers;
 
+import java.time.LocalDateTime;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ella.backend.dto.ApiResponse;
 import com.ella.backend.dto.AuthRequestDTO;
 import com.ella.backend.dto.AuthResponseDTO;
+import com.ella.backend.dto.DevResetPasswordRequestDTO;
+import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
 import com.ella.backend.exceptions.BadRequestException;
-import com.ella.backend.services.UserService;
+import com.ella.backend.mappers.UserMapper;
 import com.ella.backend.security.JwtService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.*;
+import com.ella.backend.services.UserService;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-
-import com.ella.backend.dto.UserResponseDTO;
-import com.ella.backend.mappers.UserMapper;
-import java.time.LocalDateTime;
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -31,6 +39,9 @@ public class AuthController {
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+
+    @Value("${app.dev.reset-password-token:}")
+    private String devResetPasswordToken;
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponseDTO>> login(@RequestBody AuthRequestDTO request, HttpServletResponse response) {
@@ -165,5 +176,39 @@ public class AuthController {
                 .build();
 
         return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Endpoint apenas para desenvolvimento local.
+     * Permite recuperar acesso caso a senha tenha sido re-criptografada indevidamente.
+     * Protegido por token estático em `app.dev.reset-password-token`.
+     */
+    @PostMapping("/dev/reset-password")
+    public ResponseEntity<ApiResponse<Void>> devResetPassword(
+            @RequestHeader(value = "X-Dev-Reset-Token", required = false) String token,
+            @RequestBody DevResetPasswordRequestDTO request
+    ) {
+        if (devResetPasswordToken == null || devResetPasswordToken.isBlank()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.<Void>builder()
+                            .success(false)
+                            .message("Endpoint não habilitado")
+                            .timestamp(LocalDateTime.now())
+                            .build());
+        }
+
+        if (token == null || !devResetPasswordToken.equals(token)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ApiResponse.<Void>builder()
+                            .success(false)
+                            .message("Token inválido")
+                            .timestamp(LocalDateTime.now())
+                            .build());
+        }
+
+        User user = userService.findByEmail(request.getEmail());
+        userService.updatePassword(user.getId().toString(), request.getNewPassword());
+
+        return ResponseEntity.ok(ApiResponse.message("Senha resetada"));
     }
 }

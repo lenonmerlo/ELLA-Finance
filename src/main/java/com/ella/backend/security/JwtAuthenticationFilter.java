@@ -57,10 +57,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             filterChain.doFilter(request, response);
         } catch (ExpiredJwtException e) {
+            // Em rotas públicas (ex: /api/auth/**), um token expirado não deve bloquear a request.
+            if (isPublicAuthRoute(request)) {
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
             writeUnauthorizedResponse(response, "Token expirado");
         } catch (Exception e) {
+            // Em rotas públicas (ex: /api/auth/**), um token inválido não deve bloquear a request.
+            if (isPublicAuthRoute(request)) {
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
             writeUnauthorizedResponse(response, "Token inválido");
         }
+    }
+
+    private boolean isPublicAuthRoute(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri != null && uri.startsWith("/api/auth/");
     }
 
     private void writeUnauthorizedResponse(HttpServletResponse response, String message) throws IOException {

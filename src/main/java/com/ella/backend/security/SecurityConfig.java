@@ -76,7 +76,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/users").permitAll()
 
                         // 🔒 Rotas ADMIN (privado)
-                        .requestMatchers("/api/users/**").hasRole("ADMIN")
+                        // Listagem de usuários é somente ADMIN
+                        .requestMatchers(HttpMethod.GET, "/api/users").hasRole("ADMIN")
+
+                        // Usuário autenticado pode acessar /api/users/{id};
+                        // a regra fina (ADMIN ou self) é aplicada no UserController.
+                        .requestMatchers("/api/users/**").authenticated()
 
                         // 🔒 persons + financeiro: qualquer autenticação,
                         // regras finas com @PreAuthorize nos controllers
