@@ -7,20 +7,20 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
 
 import com.ella.backend.dto.FinancialTransactionResponseDTO;
+import com.ella.backend.dto.dashboard.TransactionListDTO;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.mappers.FinancialTransactionMapper;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
-import com.ella.backend.dto.dashboard.TransactionListDTO;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +39,7 @@ public class DashboardTransactionsService {
             Integer month,
             LocalDate start,
             LocalDate end,
+            String category,
             int page,
             int size
     ) {
@@ -66,11 +67,15 @@ public class DashboardTransactionsService {
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(size, 1),
                 Sort.by(Sort.Direction.DESC, "transactionDate"));
 
-        log.info("[DashboardTransactionsService] personId={} startDate={} endDate={} page={} size={}", personId,
-                startDate, endDate, page, size);
+        String trimmedCategory = category != null && !category.isBlank() ? category.trim() : null;
 
-        Page<FinancialTransaction> txPage = financialTransactionRepository
-                .findByPersonAndTransactionDateBetween(person, startDate, endDate, pageable);
+        log.info("[DashboardTransactionsService] personId={} startDate={} endDate={} category={} page={} size={}", personId,
+                startDate, endDate, trimmedCategory, page, size);
+
+        Page<FinancialTransaction> txPage = trimmedCategory == null
+                ? financialTransactionRepository.findByPersonAndTransactionDateBetween(person, startDate, endDate, pageable)
+                : financialTransactionRepository.findByPersonAndTransactionDateBetweenAndCategoryIgnoreCase(
+                        person, startDate, endDate, trimmedCategory, pageable);
 
         List<FinancialTransactionResponseDTO> transactions = txPage.getContent().stream()
                 .map(FinancialTransactionMapper::toResponseDTO)

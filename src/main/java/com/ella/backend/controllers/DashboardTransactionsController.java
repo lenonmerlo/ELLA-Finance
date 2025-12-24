@@ -1,7 +1,5 @@
 package com.ella.backend.controllers;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,11 +31,12 @@ public class DashboardTransactionsController {
             @RequestParam(required = false) Integer month,
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
+            @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size
     ) {
-        log.info("[DashboardTransactions] personId={}, year={}, month={}, start={}, end={}, page={}, size={}",
-            personId, year, month, start, end, page, size);
+        log.info("[DashboardTransactions] personId={}, year={}, month={}, start={}, end={}, category={}, page={}, size={}",
+            personId, year, month, start, end, category, page, size);
 
         TransactionListDTO response = dashboardTransactionsService.getTransactions(
             personId,
@@ -45,6 +44,7 @@ public class DashboardTransactionsController {
             month,
             start != null ? java.time.LocalDate.parse(start) : null,
             end != null ? java.time.LocalDate.parse(end) : null,
+            category,
             page,
             size
         );
