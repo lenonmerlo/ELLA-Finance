@@ -13,6 +13,7 @@ public class InvoiceParserFactory {
     public InvoiceParserFactory() {
         this.parsers = List.of(
                 new MercadoPagoInvoiceParser(),
+                new NubankInvoiceParser(),
                 new BradescoInvoiceParser(),
                 new ItauInvoiceParser(),
                 new C6InvoiceParser()
