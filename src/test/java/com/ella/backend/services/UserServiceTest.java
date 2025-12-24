@@ -1,24 +1,32 @@
 package com.ella.backend.services;
 
-import com.ella.backend.entities.User;
-import com.ella.backend.enums.Role;
-import com.ella.backend.enums.Status;
-import com.ella.backend.exceptions.BadRequestException;
-import com.ella.backend.exceptions.ConflictException;
-import com.ella.backend.repositories.UserRepository;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.UUID;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import com.ella.backend.entities.User;
+import com.ella.backend.enums.Role;
+import com.ella.backend.enums.Status;
+import com.ella.backend.exceptions.BadRequestException;
+import com.ella.backend.exceptions.ConflictException;
+import com.ella.backend.repositories.UserRepository;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -28,6 +36,9 @@ class UserServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private ApplicationEventPublisher publisher;
 
     @InjectMocks
     private UserService userService;
