@@ -81,7 +81,17 @@ final class MerchantCategoryMapper {
                 "GOOGLE ONE",
                 "GOOGLE WORKSPACE",
                 "WORKSPACE",
-                "YOUTUBE PREMIUM")) {
+                "YOUTUBE PREMIUM",
+                // Nubank frequentemente traz "D*GOOGLE ..." e "GOOGLE BRASIL PAGAMENTOS"
+                "D GOOGLE",
+                "DGOOGLE",
+                "GOOGLE BRASIL PAGAMENTOS",
+                "BRASIL PAGAMENTOS")) {
+            return "Assinaturas";
+        }
+
+        // Google Payments (evita tornar "GOOGLE" genérico demais)
+        if (n.contains("GOOGLE") && n.contains("PAGAMENTOS")) {
             return "Assinaturas";
         }
 
@@ -236,6 +246,8 @@ final class MerchantCategoryMapper {
                 "SEGUROS",
                 "SEGURADORA",
                 "SEGURADOR",
+                "PEPAY",
+                "SEGUROFATURA",
                 "SUPROTEGIDO",
                 "PROTEGIDO")) {
             return "Seguro";

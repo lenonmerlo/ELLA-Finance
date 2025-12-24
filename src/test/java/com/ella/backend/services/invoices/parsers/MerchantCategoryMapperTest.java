@@ -105,4 +105,11 @@ class MerchantCategoryMapperTest {
     void mapsBarPrefixAsLazer() {
         assertEquals("Lazer", MerchantCategoryMapper.categorize("BARZIN", TransactionType.EXPENSE));
     }
+
+    @Test
+    void mapsNubankSpecificMerchants() {
+        assertEquals("Seguro", MerchantCategoryMapper.categorize("Pepay*Segurofatura", TransactionType.EXPENSE));
+        assertEquals("Assinaturas", MerchantCategoryMapper.categorize("D*Google Gardenscape", TransactionType.EXPENSE));
+        assertEquals("Assinaturas", MerchantCategoryMapper.categorize("GOOGLE BRASIL PAGAMENTOS LTDA.", TransactionType.EXPENSE));
+    }
 }
