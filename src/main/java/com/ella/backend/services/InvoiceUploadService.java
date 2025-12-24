@@ -40,7 +40,8 @@ import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
-
+import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
+import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -55,7 +56,7 @@ public class InvoiceUploadService {
     private final CreditCardRepository creditCardRepository;
     private final InvoiceRepository invoiceRepository;
     private final InstallmentRepository installmentRepository;
-
+    private final InvoiceParserFactory invoiceParserFactory;
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public InvoiceUploadResponseDTO processInvoice(MultipartFile file, String password) {
@@ -77,9 +78,12 @@ public class InvoiceUploadService {
             if (transactions == null || transactions.isEmpty()) {
                 if (isPdf) {
                     throw new IllegalArgumentException(
-                            "Não foi possível extrair transações desse PDF. " +
-                                    "Ele pode estar escaneado (imagem), protegido, ou ter um layout ainda não suportado. " +
-                                    "Tente exportar/enviar um CSV, ou um PDF com texto selecionável."
+                        (password != null && !password.isBlank()
+                            ? "Não foi possível extrair transações desse PDF mesmo com senha informada. "
+                            : "Não foi possível extrair transações desse PDF. ") +
+                            "Ele pode estar escaneado (imagem), ter restrição de extração de texto, " +
+                            "ou ter um layout ainda não suportado. " +
+                            "Tente exportar/enviar um CSV, ou um PDF com texto selecionável."
                     );
                 }
                 throw new IllegalArgumentException(
@@ -122,76 +126,68 @@ public class InvoiceUploadService {
     }
 
     private List<TransactionData> parsePdf(InputStream inputStream, String password) throws IOException {
-        List<TransactionData> transactions = new ArrayList<>();
-        try (PDDocument document = (password != null && !password.isBlank()) ? PDDocument.load(inputStream, password) : PDDocument.load(inputStream)) {
+        try (PDDocument document = (password != null && !password.isBlank())
+                ? PDDocument.load(inputStream, password)
+                : PDDocument.load(inputStream)) {
+            try {
+                document.setAllSecurityToBeRemoved(true);
+            } catch (Exception ignored) {
+            }
+
             PDFTextStripper stripper = new PDFTextStripper();
             String text = stripper.getText(document);
+            if (text == null || text.isBlank()) {
+                return List.of();
+            }
+
             log.info("[InvoiceUpload] PDF extracted sample: {}", (text.length() > 500 ? text.substring(0, 500) : text));
 
-            LocalDate invoiceDueDate = extractInvoiceDueDateFromPdfText(text);
-            if (invoiceDueDate != null) {
-                log.info("[InvoiceUpload] Detected invoice due date: {}", invoiceDueDate);
-            } else {
-                log.warn("[InvoiceUpload] Could not detect invoice due date from PDF text; transactions will fallback to purchase date month.");
+            var parserOpt = invoiceParserFactory.getParser(text);
+            if (parserOpt.isEmpty()) {
+                throw new IllegalArgumentException("Layout de fatura não suportado.");
+            }
+            InvoiceParserStrategy parser = parserOpt.get();
+
+            LocalDate invoiceDueDate = parser.extractDueDate(text);
+            if (invoiceDueDate == null) {
+                throw new IllegalArgumentException(
+                        "Não foi possível determinar a data de vencimento da fatura. " +
+                                "O processamento foi interrompido para evitar lançamentos incorretos."
+                );
             }
 
-            if (text == null || text.isBlank()) {
-                return transactions;
+            List<com.ella.backend.services.invoices.parsers.TransactionData> parsed = parser.extractTransactions(text);
+            List<TransactionData> transactions = new ArrayList<>();
+
+            for (com.ella.backend.services.invoices.parsers.TransactionData p : parsed) {
+                InstallmentInfo installment = (p.installmentNumber != null && p.installmentTotal != null)
+                        ? new InstallmentInfo(p.installmentNumber, p.installmentTotal)
+                        : null;
+
+                TransactionData data = new TransactionData(
+                        p.description,
+                        p.amount,
+                        p.type,
+                        p.category != null ? p.category : "Outros",
+                        p.date,
+                        p.cardName,
+                        p.scope,
+                        installment
+                );
+                data.dueDate = invoiceDueDate;
+                transactions.add(data);
             }
-            
-            enum PdfSection { NONE, PAYMENTS, PURCHASES, INSTALLMENTS_FUTURE }
-            PdfSection section = PdfSection.NONE;
 
-            String[] lines = text.split("\\r?\\n");
-            for (String line : lines) {
-                String sectionLine = normalizeSectionLine(line);
+            log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
+                    parser.getClass().getSimpleName(), invoiceDueDate, transactions.size());
 
-                // Itaú (e similares): controla a seção para não importar "próximas faturas"
-                if (sectionLine.contains("pagamentos efetuados")) {
-                    section = PdfSection.PAYMENTS;
-                    continue;
-                }
-                if (sectionLine.contains("lancamentos: compras e saques") || sectionLine.contains("lancamentos: compras e saques")) {
-                    section = PdfSection.PURCHASES;
-                    continue;
-                }
-                if (sectionLine.contains("compras parceladas") || sectionLine.contains("proximas faturas") || sectionLine.contains("proxima fatura")) {
-                    section = PdfSection.INSTALLMENTS_FUTURE;
-                    continue;
-                }
-                if (sectionLine.contains("encargos cobrados nesta fatura")
-                        || sectionLine.contains("novo teto")
-                        || sectionLine.contains("credito rotativo")
-                        || sectionLine.contains("limites de credito")
-                        || sectionLine.startsWith("sac")) {
-                    section = PdfSection.NONE;
-                    continue;
-                }
-
-                boolean shouldParse = (section == PdfSection.PAYMENTS || section == PdfSection.PURCHASES);
-                if (!shouldParse) {
-                    continue;
-                }
-
-                TransactionData data = parsePdfLine(line);
-                if (data != null) {
-                    data.dueDate = invoiceDueDate;
-                    transactions.add(data);
-                } else {
-                    // Log lines that didn't match to help debugging
-                    if (line.matches(".*\\d{2}/\\d{2}.*")) { // Only log lines that look like they might have a date
-                        log.debug("[InvoiceUpload] Ignored line (regex mismatch): {}", line);
-                    }
-                }
-            }
+            return transactions;
         } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
             if (password != null && !password.isBlank()) {
                 throw new IllegalArgumentException("Senha incorreta para o arquivo PDF.");
             }
             throw new IllegalArgumentException("O arquivo PDF está protegido por senha. Por favor, forneça a senha.");
         }
-        log.info("[InvoiceUpload] Total parsed transactions: {}", transactions.size());
-        return transactions;
     }
 
     private String normalizeSectionLine(String line) {
@@ -241,9 +237,28 @@ public class InvoiceUploadService {
         try {
             line = line.trim();
             if (line.isEmpty()) return null;
-            // Regex genérico para tentar capturar data, descrição e valor
-            // Suporta: 01/01/2023, 01/01, 01 JAN
-            Pattern pattern = Pattern.compile("^(\\d{2}\\s+[A-Za-z]{3}|\\d{2}/\\d{2}(?:/\\d{4})?)\\s+(.+?)\\s+(-?[\\d\\.,]+)\\s*$");
+
+            String normalizedLine = normalizeSectionLine(line);
+            // Evita falsos positivos em linhas de cabeçalho/total
+            if (normalizedLine.contains("total")
+                    || normalizedLine.contains("venc")
+                    || normalizedLine.contains("pagamento minimo")
+                    || normalizedLine.contains("limite")
+                    || normalizedLine.contains("resumo")
+                    || normalizedLine.contains("saldo")) {
+                // ainda assim, algumas faturas podem ter compras com a palavra "total" na descrição; então só filtra
+                // quando não parece ter um valor monetário no final.
+                if (!normalizedLine.matches(".*(r\\$\\s*)?\\(?-?\\d{1,3}(?:\\.\\d{3})*,\\d{2}\\)?\\s*$")) {
+                    return null;
+                }
+            }
+
+            // Regex tolerante para capturar: data, descrição, valor.
+            // Suporta: dd/MM, dd/MM/yy, dd/MM/yyyy, dd MMM; valor pode vir com R$, milhares e parênteses.
+            Pattern pattern = Pattern.compile(
+                    "^(\\d{2}\\s+[A-Za-z]{3}|\\d{2}/\\d{2}(?:/\\d{2,4})?)\\s+(.+?)\\s+(?:R\\$\\s*)?(\\(?-?[\\d\\.,]+\\)?)\\s*$",
+                    Pattern.CASE_INSENSITIVE
+            );
             Matcher matcher = pattern.matcher(line);
             if (matcher.find()) {
                 String dateStr = matcher.group(1);
@@ -255,8 +270,23 @@ public class InvoiceUploadService {
                 LocalDate date = parseDate(dateStr);
                 
                 // Limpar valor
-                amountStr = amountStr.replace(".", "").replace(",", ".");
-                BigDecimal amount = new BigDecimal(amountStr);
+                boolean negative = false;
+                String raw = amountStr.trim();
+                if (raw.startsWith("(") && raw.endsWith(")")) {
+                    negative = true;
+                    raw = raw.substring(1, raw.length() - 1).trim();
+                }
+                if (raw.startsWith("-")) {
+                    negative = true;
+                }
+
+                raw = raw.replace("R$", "").trim();
+                raw = raw.replace(".", "").replace(",", ".");
+                raw = raw.replace("-", "");
+                BigDecimal amount = new BigDecimal(raw);
+                if (negative) {
+                    amount = amount.negate();
+                }
                 
                 // Lógica invertida para faturas de cartão:
                 // Valores positivos são DESPESAS (compras)
@@ -711,6 +741,18 @@ public class InvoiceUploadService {
                 return LocalDate.parse(dateStr, formatter);
             } catch (Exception e2) {
                 try {
+                    // Tenta formato dd/MM/yy
+                    DateTimeFormatter shortYear = DateTimeFormatter.ofPattern("dd/MM/yy");
+                    LocalDate parsed = LocalDate.parse(dateStr, shortYear);
+                    if (parsed.isAfter(LocalDate.now().plusMonths(1))) {
+                        return parsed.minusYears(1);
+                    }
+                    return parsed;
+                } catch (Exception ignored) {
+                    // segue para dd/MM
+                }
+
+                try {
                     // Tenta formato curto dd/MM assumindo ano atual
                     // Se a data for futura em relação a hoje, assume ano anterior (ex: upload em Jan/25 de fatura de Dez/24)
                     LocalDate parsed = LocalDate.parse(dateStr, new java.time.format.DateTimeFormatterBuilder()
@@ -832,3 +874,5 @@ public class InvoiceUploadService {
 
     private record CardMetadata(String name, String brand, String lastFourDigits) {}
 }
+
+
