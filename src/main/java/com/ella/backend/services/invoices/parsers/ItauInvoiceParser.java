@@ -134,7 +134,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
                 }
             }
 
-            String category = categorizeDescription(desc, type);
+            String category = MerchantCategoryMapper.categorize(desc, type);
             TransactionScope scope = inferScope(desc, null);
 
             TransactionData data = new TransactionData(desc, amount.abs(), type, category, date, null, scope);

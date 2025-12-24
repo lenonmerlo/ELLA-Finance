@@ -91,11 +91,12 @@ public class MercadoPagoInvoiceParser implements InvoiceParserStrategy {
                     BigDecimal amount = parseBrlAmount(am.group(1));
                     if (amount != null) {
                         TransactionType type = inferType(pendingIntlDesc, amount);
+                            String category = MerchantCategoryMapper.categorize(pendingIntlDesc, type);
                         TransactionData td = new TransactionData(
                                 pendingIntlDesc,
                                 amount.abs(),
                                 type,
-                                "Outros",
+                                category,
                                 parsePurchaseDate(pendingIntlDate, dueDate),
                                 currentCardName,
                                 TransactionScope.PERSONAL
@@ -118,11 +119,12 @@ public class MercadoPagoInvoiceParser implements InvoiceParserStrategy {
                 if (amount == null) continue;
 
                 TransactionType type = inferType(desc, amount);
+                String category = MerchantCategoryMapper.categorize(desc, type);
                 TransactionData td = new TransactionData(
                         desc,
                         amount.abs(),
                         type,
-                        "Outros",
+                    category,
                         parsePurchaseDate(ddmm, dueDate),
                         currentCardName,
                         TransactionScope.PERSONAL
@@ -141,11 +143,12 @@ public class MercadoPagoInvoiceParser implements InvoiceParserStrategy {
                 if (amount == null) continue;
 
                 TransactionType type = inferType(desc, amount);
+                String category = MerchantCategoryMapper.categorize(desc, type);
                 TransactionData td = new TransactionData(
                         desc,
                         amount.abs(),
                         type,
-                        "Outros",
+                    category,
                         parsePurchaseDate(ddmm, dueDate),
                         currentCardName,
                         TransactionScope.PERSONAL
