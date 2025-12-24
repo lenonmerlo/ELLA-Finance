@@ -88,6 +88,14 @@ class MerchantCategoryMapperTest {
     }
 
     @Test
+    void mapsPlanoSaudeESeguroKeywords() {
+        assertEquals("Plano de Saúde", MerchantCategoryMapper.categorize("UNIMED LITORAL", TransactionType.EXPENSE));
+        assertEquals("Seguro", MerchantCategoryMapper.categorize("BRADESCO AUTO", TransactionType.EXPENSE));
+        assertEquals("Vestuário", MerchantCategoryMapper.categorize("VIVARA FOR", TransactionType.EXPENSE));
+        assertEquals("Reembolso", MerchantCategoryMapper.categorize("PAYGOAL", TransactionType.INCOME));
+    }
+
+    @Test
     void mapsIfoodIfdPrefix() {
         assertEquals("iFood", MerchantCategoryMapper.categorize("IFD*EMPREENDIMENTOS PA", TransactionType.EXPENSE));
         assertEquals("iFood", MerchantCategoryMapper.categorize("IFD*VITOR SILVA PRANDO", TransactionType.EXPENSE));

@@ -20,7 +20,8 @@ final class MerchantCategoryMapper {
             if (n.contains("INCLUSAO DE PAGAMENTO") || n.contains("PAGAMENTO")) {
                 return "Pagamento";
             }
-            if (n.contains("ESTORNO") || n.contains("CREDITO")) {
+            if (n.contains("ESTORNO") || n.contains("CREDITO") || n.contains("REEMBOLSO") || n.contains("DEVOLUCAO")
+                    || n.contains("PAYGOAL") || n.contains("CASHBACK") || n.contains("PONTOS")) {
                 return "Reembolso";
             }
             return "Outros";
@@ -152,6 +153,7 @@ final class MerchantCategoryMapper {
                 "RIACHUELO",
                 "LOJAS RIACHUELO",
                 "ZARA",
+                "VIVARA",
                 "FOREVER 21",
                 "FASHION",
                 "MARCELOSHOES",
@@ -212,6 +214,31 @@ final class MerchantCategoryMapper {
         // "OTICA" precisa ser palavra inteira (evita "BOTICARIO" virar Saúde)
         if (n.contains("VISAOEXPRESS") || n.matches(".*\\bOTICA\\b.*") || n.matches(".*\\bOTICAS\\b.*")) {
             return "Saúde";
+        }
+
+        // ===== Plano de Saúde (operadoras) =====
+        if (containsAny(n, nCompact,
+                "UNIMED",
+                "BRADESCO SAUDE",
+                "BRADESCO SAÚDE",
+                "AMIL",
+                "SULAMERICA",
+                "SULAMÉRICA",
+                "HAPVIDA")) {
+            return "Plano de Saúde";
+        }
+
+        // ===== Seguros =====
+        if (containsAny(n, nCompact,
+                "BRADESCO AUTO",
+                "MONGERAL",
+                "SEGURO",
+                "SEGUROS",
+                "SEGURADORA",
+                "SEGURADOR",
+                "SUPROTEGIDO",
+                "PROTEGIDO")) {
+            return "Seguro";
         }
 
         // ===== Farmácias / Drogarias / Óticas =====
