@@ -566,6 +566,8 @@ private List<TransactionData> parsePdf(InputStream inputStream, String password)
             tx.getType(),
             tx.getScope(),
             tx.getCategory(),
+            tx.getTripId() != null ? tx.getTripId().toString() : null,
+            tx.getTripSubcategory(),
             tx.getTransactionDate(),
             tx.getPurchaseDate(),
             tx.getDueDate(),
@@ -1011,5 +1013,6 @@ private List<TransactionData> parsePdf(InputStream inputStream, String password)
 
     private record CardMetadata(String name, String brand, String lastFourDigits) {}
 }
+
 
 

@@ -17,4 +17,5 @@ public class InvoiceUploadResponseDTO {
     private LocalDate startDate;
     private LocalDate endDate;
     private List<FinancialTransactionResponseDTO> transactions;
+    private TripSuggestionDTO tripSuggestion;
 }

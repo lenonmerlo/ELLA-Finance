@@ -14,6 +14,7 @@ public class InvoiceParserFactory {
         this.parsers = List.of(
                 new MercadoPagoInvoiceParser(),
                 new NubankInvoiceParser(),
+                new BancoDoBrasilInvoiceParser(),
             new SicrediInvoiceParser(),
             new SantanderInvoiceParser(),
                 new BradescoInvoiceParser(),
