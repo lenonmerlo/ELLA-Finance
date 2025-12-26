@@ -138,6 +138,25 @@
 			<artifactId>pdfbox</artifactId>
 			<version>2.0.29</version>
 		</dependency>
+
+		<!-- ==== OCR (Tesseract via Tess4J) ==== -->
+		<dependency>
+			<groupId>net.sourceforge.tess4j</groupId>
+			<artifactId>tess4j</artifactId>
+			<version>5.11.0</version>
+			<exclusions>
+				<!-- Keep the PDFBox version controlled by this project -->
+				<exclusion>
+					<groupId>org.apache.pdfbox</groupId>
+					<artifactId>pdfbox</artifactId>
+				</exclusion>
+				<!-- Avoid pulling a concrete logger implementation into the app -->
+				<exclusion>
+					<groupId>org.slf4j</groupId>
+					<artifactId>slf4j-simple</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
 	</dependencies>
 
 	<build>
