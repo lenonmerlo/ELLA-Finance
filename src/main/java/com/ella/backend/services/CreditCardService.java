@@ -1,5 +1,11 @@
 package com.ella.backend.services;
 
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+
+import com.ella.backend.audit.Auditable;
 import com.ella.backend.dto.CreditCardRequestDTO;
 import com.ella.backend.dto.CreditCardResponseDTO;
 import com.ella.backend.entities.CreditCard;
@@ -7,13 +13,8 @@ import com.ella.backend.entities.Person;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.PersonRepository;
-import com.ella.backend.audit.Auditable;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -30,6 +31,10 @@ public class CreditCardService {
         CreditCard card = new CreditCard();
         card.setOwner(owner);
         card.setName(dto.getName());
+        String holder = (owner.getName() != null && !owner.getName().isBlank())
+            ? owner.getName().trim()
+            : (dto.getName() != null && !dto.getName().isBlank() ? dto.getName().trim() : "Titular");
+        card.setCardholderName(holder);
         card.setBrand(dto.getBrand());
         card.setLimitAmount(dto.getLimitAmount());
         card.setClosingDay(dto.getClosingDay());
@@ -70,6 +75,12 @@ public class CreditCardService {
 
         card.setOwner(owner);
         card.setName(dto.getName());
+        if (card.getCardholderName() == null || card.getCardholderName().isBlank()) {
+            String holder = (owner.getName() != null && !owner.getName().isBlank())
+                    ? owner.getName().trim()
+                    : (dto.getName() != null && !dto.getName().isBlank() ? dto.getName().trim() : "Titular");
+            card.setCardholderName(holder);
+        }
         card.setBrand(dto.getBrand());
         card.setLimitAmount(dto.getLimitAmount());
         card.setClosingDay(dto.getClosingDay());

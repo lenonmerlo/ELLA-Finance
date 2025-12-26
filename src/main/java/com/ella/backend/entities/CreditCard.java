@@ -1,15 +1,25 @@
 package com.ella.backend.entities;
 
-import jakarta.persistence.*;
-import jakarta.persistence.Index;
-import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import lombok.Data;
 
 @Entity
 @Table(
@@ -30,6 +40,9 @@ public class CreditCard {
 
     @Column(nullable = false)
     private String name;
+
+        @Column(nullable = false)
+        private String cardholderName;
 
     @Column(nullable = false)
     private String brand;
@@ -57,4 +70,22 @@ public class CreditCard {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+        @PrePersist
+        @PreUpdate
+        private void ensureNonNullFields() {
+                if (name != null && name.isBlank()) {
+                        name = name.trim();
+                }
+
+                if (cardholderName == null || cardholderName.isBlank()) {
+                        if (name != null && !name.isBlank()) {
+                                cardholderName = name;
+                        } else if (owner != null && owner.getName() != null && !owner.getName().isBlank()) {
+                                cardholderName = owner.getName();
+                        } else {
+                                cardholderName = "Titular";
+                        }
+                }
+        }
 }
