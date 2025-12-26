@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.ella.backend.audit.Auditable;
+import com.ella.backend.dto.InvoiceInsightsDTO;
 import com.ella.backend.dto.InvoicePaymentDTO;
 import com.ella.backend.dto.InvoiceRequestDTO;
 import com.ella.backend.dto.InvoiceResponseDTO;
@@ -13,6 +14,7 @@ import com.ella.backend.entities.CreditCard;
 import com.ella.backend.entities.Invoice;
 import com.ella.backend.enums.InvoiceStatus;
 import com.ella.backend.exceptions.ResourceNotFoundException;
+import com.ella.backend.mappers.FinancialTransactionMapper;
 import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.InstallmentRepository;
@@ -134,6 +136,99 @@ public class InvoiceService {
         invoiceRepository.delete(invoice);
 
     }
+
+        public InvoiceInsightsDTO getInvoiceInsights(UUID invoiceId) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+            .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
+
+        // Transações associadas à fatura via installments
+        var installments = installmentRepository.findByInvoice(invoice);
+        var transactions = installments.stream()
+            .map(inst -> inst != null ? inst.getTransaction() : null)
+            .filter(java.util.Objects::nonNull)
+            .filter(tx -> tx.getId() != null)
+            .collect(java.util.stream.Collectors.collectingAndThen(
+                java.util.stream.Collectors.toMap(
+                    tx -> tx.getId(),
+                    tx -> tx,
+                    (a, b) -> a,
+                    java.util.LinkedHashMap::new
+                ),
+                m -> new java.util.ArrayList<>(m.values())
+            ));
+
+        // spendingByCategory (apenas despesas)
+        java.util.Map<String, java.math.BigDecimal> byCategory = new java.util.HashMap<>();
+        for (var tx : transactions) {
+            if (tx.getType() != com.ella.backend.enums.TransactionType.EXPENSE) continue;
+            String category = tx.getCategory() != null && !tx.getCategory().isBlank() ? tx.getCategory() : "Outros";
+            java.math.BigDecimal amount = tx.getAmount() != null ? tx.getAmount() : java.math.BigDecimal.ZERO;
+            byCategory.merge(category, amount, java.math.BigDecimal::add);
+        }
+        java.util.Map<String, Double> spendingByCategory = new java.util.HashMap<>();
+        for (var e : byCategory.entrySet()) {
+            spendingByCategory.put(e.getKey(), e.getValue() != null ? e.getValue().doubleValue() : 0.0);
+        }
+
+        // comparisonWithPreviousMonth
+        Double comparison = null;
+        if (invoice.getMonth() != null && invoice.getYear() != null && invoice.getCard() != null) {
+            int prevMonth = invoice.getMonth() == 1 ? 12 : (invoice.getMonth() - 1);
+            int prevYear = invoice.getMonth() == 1 ? (invoice.getYear() - 1) : invoice.getYear();
+            var prev = invoiceRepository.findByCardAndMonthAndYear(invoice.getCard(), prevMonth, prevYear).orElse(null);
+            if (prev != null && prev.getTotalAmount() != null
+                && prev.getTotalAmount().compareTo(java.math.BigDecimal.ZERO) != 0
+                && invoice.getTotalAmount() != null) {
+            java.math.BigDecimal diff = invoice.getTotalAmount().subtract(prev.getTotalAmount());
+            comparison = diff.divide(prev.getTotalAmount(), 6, java.math.RoundingMode.HALF_UP).doubleValue();
+            }
+        }
+
+        // highestTransaction (maior despesa)
+        var highest = transactions.stream()
+            .filter(tx -> tx.getType() == com.ella.backend.enums.TransactionType.EXPENSE)
+            .filter(tx -> tx.getAmount() != null)
+            .max(java.util.Comparator.comparing(com.ella.backend.entities.FinancialTransaction::getAmount))
+            .map(FinancialTransactionMapper::toResponseDTO)
+            .orElse(null);
+
+        // recurringSubscriptions (MVP por palavras-chave)
+        java.util.List<String> subscriptionKeywords = java.util.List.of(
+            "NETFLIX",
+            "SPOTIFY",
+            "ADOBE",
+            "APPLE.COM/BILL",
+            "APPLE COM BILL",
+            "MICROSOFT",
+            "GOOGLE",
+            "PRIME",
+            "AMAZON PRIME",
+            "DISNEY",
+            "HBO",
+            "GLOBOPLAY"
+        );
+
+        var recurring = transactions.stream()
+            .filter(tx -> tx.getType() == com.ella.backend.enums.TransactionType.EXPENSE)
+            .filter(tx -> {
+                String desc = tx.getDescription() != null ? tx.getDescription().toUpperCase(java.util.Locale.ROOT) : "";
+                for (String kw : subscriptionKeywords) {
+                if (desc.contains(kw)) return true;
+                }
+                return false;
+            })
+            .sorted(java.util.Comparator.comparing(com.ella.backend.entities.FinancialTransaction::getAmount,
+                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())).reversed())
+            .map(FinancialTransactionMapper::toResponseDTO)
+            .toList();
+
+        InvoiceInsightsDTO dto = new InvoiceInsightsDTO();
+        dto.setSpendingByCategory(spendingByCategory);
+        dto.setComparisonWithPreviousMonth(comparison);
+        dto.setHighestTransaction(highest);
+        dto.setRecurringSubscriptions(recurring);
+        return dto;
+        }
 
     private InvoiceResponseDTO toDTO(Invoice invoice) {
         InvoiceResponseDTO dto = new InvoiceResponseDTO();

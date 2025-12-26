@@ -309,13 +309,20 @@ public class DashboardService {
 
                     boolean isPaid = inv.getStatus() == InvoiceStatus.PAID;
 
+                    String holderName = inv.getCard() != null ? inv.getCard().getCardholderName() : null;
+                    if (holderName == null || holderName.isBlank()) {
+                        holderName = inv.getCard() != null && inv.getCard().getOwner() != null
+                                ? inv.getCard().getOwner().getName()
+                                : "";
+                    }
+
                     return InvoiceSummaryDTO.builder()
                             .invoiceId(inv.getId().toString())
                             .creditCardId(inv.getCard().getId().toString())
                             .creditCardName(inv.getCard().getName())
                             .creditCardBrand(inv.getCard().getBrand())
                             .creditCardLastFourDigits(inv.getCard().getLastFourDigits())
-                            .personName(inv.getCard().getOwner().getName())
+                            .personName(holderName)
                             .totalAmount(inv.getTotalAmount())
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)

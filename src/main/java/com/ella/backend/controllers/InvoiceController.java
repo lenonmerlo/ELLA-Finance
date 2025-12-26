@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.ella.backend.dto.ApiResponse;
+import com.ella.backend.dto.InvoiceInsightsDTO;
 import com.ella.backend.dto.InvoicePaymentDTO;
 import com.ella.backend.dto.InvoiceRequestDTO;
 import com.ella.backend.dto.InvoiceResponseDTO;
@@ -64,6 +65,13 @@ public class InvoiceController {
     public ResponseEntity<ApiResponse<List<InvoiceResponseDTO>>> findByCard(@PathVariable String cardId) {
         List<InvoiceResponseDTO> list = invoiceService.findyByCard(cardId);
         return ResponseEntity.ok(ApiResponse.success(list, "Faturas do cartão encontradas"));
+    }
+
+    @GetMapping("/{invoiceId}/insights")
+    @PreAuthorize("hasRole('ADMIN') or @securityService.canAccessInvoice(#invoiceId)")
+    public ResponseEntity<ApiResponse<InvoiceInsightsDTO>> getInvoiceInsights(@PathVariable String invoiceId) {
+        InvoiceInsightsDTO insights = invoiceService.getInvoiceInsights(java.util.UUID.fromString(invoiceId));
+        return ResponseEntity.ok(ApiResponse.success(insights, "Insights da fatura"));
     }
 
     @PutMapping("/{id}")
