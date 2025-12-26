@@ -32,6 +32,60 @@ API do ELLA (assistente financeira) construída em Spring Boot 3.5/Java 21, com 
 - Maven 3.9+
 - PostgreSQL 14+ (database criada; padrão `ella`)
 
+## OCR (PDF escaneado / imagem)
+
+Por padrão, o upload tenta extrair texto via **PDFBox**. Quando o PDF é escaneado (ou seja, contém apenas imagem), o texto extraído pode vir vazio/curto. Para esses casos, o backend suporta **fallback OCR** via **Tesseract (Tess4J)**.
+
+### Pré-requisito (Windows)
+
+- Instale o **Tesseract OCR** no Windows (qualquer distribuição confiável).
+- Garanta que:
+  - o executável do Tesseract esteja disponível no PATH **ou** que o ambiente esteja configurado para encontrar os dados do modelo (`tessdata`), e
+  - o idioma desejado exista em `tessdata` (ex.: `por.traineddata` para português).
+
+> Dica: se você tiver problemas de `tessdata`, prefira apontar explicitamente o caminho via `ella.ocr.tessdata-path`.
+
+### Como habilitar
+
+No `application.properties` (ou via variáveis de ambiente):
+
+```properties
+# habilita OCR fallback (default: false)
+ella.ocr.enabled=true
+
+# idioma(s) do tesseract (ex.: por, eng, por+eng)
+ella.ocr.language=por
+
+# opcional: caminho que CONTÉM a pasta "tessdata"
+# exemplo (Windows): C:\Program Files\Tesseract-OCR
+ella.ocr.tessdata-path=
+
+# se o texto extraído via PDFBox vier menor que isso, o OCR é tentado
+ella.ocr.pdf.min-text-length=200
+
+# qualidade do render para OCR (mais alto = mais lento, mais preciso)
+ella.ocr.pdf.render-dpi=220
+
+# limite de páginas processadas por OCR (proteção de performance)
+ella.ocr.pdf.max-pages=6
+```
+
+Equivalente via env vars:
+
+```bash
+set ELLA_OCR_ENABLED=true
+set ELLA_OCR_LANGUAGE=por
+set ELLA_OCR_TESSDATA_PATH=C:\\Program Files\\Tesseract-OCR
+set ELLA_OCR_PDF_RENDER_DPI=220
+set ELLA_OCR_PDF_MAX_PAGES=6
+```
+
+### Como funciona (resumo)
+
+- Primeiro: `PDFBox` tenta extrair texto do PDF.
+- Se `ella.ocr.enabled=true` e o texto vier vazio/curto: renderiza páginas em memória (`BufferedImage`) e roda OCR.
+- O OCR é **thread-safe** no backend: cada thread usa sua própria instância de Tesseract (`ThreadLocal`).
+
 ## Configuração rápida
 
 1. Copie `src/main/resources/application.properties` ou defina variáveis de ambiente:

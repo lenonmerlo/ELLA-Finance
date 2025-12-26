@@ -18,12 +18,12 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
 
     // Ex.: Total a Pagar R$ 44.815,95 Vencimento 20/12/2025
     private static final Pattern HEADER_TOTAL_AND_DUE_PATTERN = Pattern.compile(
-            "(?is)Total\\s+a\\s+Pagar\\s+R\\$\\s*([\\d.,]+)\\s+Vencimento\\s+(\\d{2}/\\d{2}/\\d{4})"
+        "(?is)Total\\s+a\\s+Pagar\\s+R\\$\\s*([\\d.,]+)\\s+Vencimento\\s+(\\d{2}/\\d{2}(?:/\\d{4})?)"
     );
     private static final Pattern DUE_DATE_PATTERN = Pattern.compile(
-            "(?is)\\bvencimento\\b\\s+(\\d{2}/\\d{2}/\\d{4})"
+        "(?is)\\b(vencimento|data\\s+de\\s+vencimento)\\b[^\\d]{0,30}(\\d{2}/\\d{2}(?:/\\d{4})?)"
     );
-    private static final DateTimeFormatter DUE_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private static final DateTimeFormatter DUE_DATE_DDMMYYYY = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     // Ex.: ATILLA FERREGUETTI - 4258 XXXX XXXX 8854
     private static final Pattern HOLDER_BLOCK_PATTERN = Pattern.compile(
@@ -63,12 +63,12 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
 
         Matcher m1 = HEADER_TOTAL_AND_DUE_PATTERN.matcher(text);
         if (m1.find()) {
-            return parseDueDate(m1.group(2));
+            return parseDueDate(m1.group(2), text);
         }
 
         Matcher m2 = DUE_DATE_PATTERN.matcher(text);
         if (m2.find()) {
-            return parseDueDate(m2.group(1));
+            return parseDueDate(m2.group(2), text);
         }
 
         return null;
@@ -295,13 +295,44 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
     private record InstallmentInfo(Integer number, Integer total) {
     }
 
-    private LocalDate parseDueDate(String value) {
+    private LocalDate parseDueDate(String value, String fullText) {
         try {
             if (value == null) return null;
-            return LocalDate.parse(value.trim(), DUE_DATE_FORMATTER);
+            String v = value.trim();
+            if (v.isEmpty()) return null;
+
+            // dd/MM/yyyy
+            if (v.matches("^\\d{2}/\\d{2}/\\d{4}$")) {
+                return LocalDate.parse(v, DUE_DATE_DDMMYYYY);
+            }
+
+            // dd/MM (infer year)
+            if (v.matches("^\\d{2}/\\d{2}$")) {
+                String[] parts = v.split("/");
+                int day = Integer.parseInt(parts[0]);
+                int month = Integer.parseInt(parts[1]);
+
+                Integer inferredYear = inferYearFromText(fullText);
+                int year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
+                return LocalDate.of(year, month, day);
+            }
+
+            return null;
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private Integer inferYearFromText(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher m = Pattern.compile("(?s)\\b\\d{2}/\\d{2}/(\\d{4})\\b").matcher(text);
+        if (m.find()) {
+            try {
+                return Integer.parseInt(m.group(1));
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 
     private String safeTrim(String s) {

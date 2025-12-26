@@ -88,4 +88,24 @@ class SantanderInvoiceParserTest {
         assertEquals(LocalDate.of(2025, 12, 6), t5.date);
         assertTrue(t5.cardName.contains("8830"));
     }
+
+    @Test
+    void extractsDueDateWhenYearIsMissing() {
+        // Alguns layouts do Santander trazem "Vencimento 20/12" (sem ano).
+        // Inferimos o ano a partir de qualquer data com ano presente no documento.
+        String text = String.join("\n",
+                "SANTANDER",
+                "Emitido em: 19/12/2025",
+                "Total a Pagar R$ 1.234,56 Vencimento 20/12",
+                "ATILLA FERREGUETTI - 4258 XXXX XXXX 8854",
+                "DESPESAS",
+                "17/12 UBER TRIP 18,40"
+        );
+
+        SantanderInvoiceParser parser = new SantanderInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        LocalDate dueDate = parser.extractDueDate(text);
+        assertEquals(LocalDate.of(2025, 12, 20), dueDate);
+    }
 }

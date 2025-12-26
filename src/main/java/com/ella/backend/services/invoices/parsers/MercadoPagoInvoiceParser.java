@@ -53,9 +53,9 @@ public class MercadoPagoInvoiceParser implements InvoiceParserStrategy {
 
         // Linhas típicas (PDFBox costuma remover os pipes)
         Pattern installmentLine = Pattern.compile(
-                "(?i)^(\\d{2}/\\d{2})\\s+(.+?)\\s+parcela\\s+(\\d+)\\s+de\\s+(\\d+)\\s+R\\$\\s*([\\d\\.]+,\\d{2})\\s*$");
+            "(?i)^(\\d{2}/\\d{2})\\s+(.+?)\\s+parcela\\s+(\\d+)\\s+de\\s+(\\d+)\\s+(?:R\\$\\s*)?([\\d\\.]+,\\d{2})\\s*$");
         Pattern basicLine = Pattern.compile(
-                "(?i)^(\\d{2}/\\d{2})\\s+(.+?)\\s+R\\$\\s*([\\-]?[\\d\\.]+,\\d{2})\\s*$");
+            "(?i)^(\\d{2}/\\d{2})\\s+(.+?)\\s+(?:R\\$\\s*)?([\\-]?[\\d\\.]+,\\d{2})\\s*$");
 
         Pattern intlStart = Pattern.compile("(?i)^(\\d{2}/\\d{2})\\s+compra\\s+internacional\\s+em\\s+(.+?)\\s*$");
         Pattern brlAmountLine = Pattern.compile("(?i).*R\\$\\s*([\\-]?[\\d\\.]+,\\d{2}).*");
@@ -91,7 +91,7 @@ public class MercadoPagoInvoiceParser implements InvoiceParserStrategy {
                     BigDecimal amount = parseBrlAmount(am.group(1));
                     if (amount != null) {
                         TransactionType type = inferType(pendingIntlDesc, amount);
-                            String category = MerchantCategoryMapper.categorize(pendingIntlDesc, type);
+                        String category = MerchantCategoryMapper.categorize(pendingIntlDesc, type);
                         TransactionData td = new TransactionData(
                                 pendingIntlDesc,
                                 amount.abs(),
