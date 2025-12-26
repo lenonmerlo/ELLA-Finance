@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -57,7 +58,48 @@ public class InvoiceUploadService {
     private final InvoiceRepository invoiceRepository;
     private final InstallmentRepository installmentRepository;
     private final InvoiceParserFactory invoiceParserFactory;
+    
     @Transactional
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
+    public InvoiceUploadResponseDTO processInvoice(MultipartFile file, String password, String dueDate) {
+        String filename = file.getOriginalFilename();
+        if (filename == null) {
+            throw new IllegalArgumentException("Filename cannot be null");
+        }
+
+        boolean isPdf = filename.toLowerCase().endsWith(".pdf");
+
+        try (InputStream is = file.getInputStream()) {
+            List<TransactionData> transactions;
+            if (isPdf) {
+                transactions = parsePdf(is, password, dueDate);
+            } else {
+                transactions = parseCsv(is);
+            }
+
+            if (transactions == null || transactions.isEmpty()) {
+                if (isPdf) {
+                    throw new IllegalArgumentException(
+                        (password != null && !password.isBlank()
+                            ? "Não foi possível extrair transações desse PDF mesmo com senha informada. "
+                            : "Não foi possível extrair transações desse PDF. ") +
+                            "Ele pode estar escaneado (imagem), ter restrição de extração de texto, " +
+                            "ou ter um layout ainda não suportado. " +
+                            "Tente exportar/enviar um CSV, ou um PDF com texto selecionável."
+                    );
+                }
+                throw new IllegalArgumentException(
+                        "Não encontrei transações neste arquivo. Confira se o CSV tem cabeçalho e colunas compatíveis."
+                );
+            }
+            return processTransactions(transactions, filename);
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to process file", e);
+        }
+    }
+@Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public InvoiceUploadResponseDTO processInvoice(MultipartFile file, String password) {
         String filename = file.getOriginalFilename();
@@ -125,7 +167,102 @@ public class InvoiceUploadService {
         return transactions;
     }
 
-    private List<TransactionData> parsePdf(InputStream inputStream, String password) throws IOException {
+    
+    private LocalDate parseDueDateOverrideOrThrow(String dueDate) {
+        String v = dueDate == null ? "" : dueDate.trim();
+        if (v.isEmpty()) return null;
+
+        List<DateTimeFormatter> formatters = List.of(
+                DateTimeFormatter.ISO_LOCAL_DATE,
+                DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT)
+        );
+
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                return LocalDate.parse(v, formatter);
+            } catch (Exception ignored) {
+            }
+        }
+
+        throw new IllegalArgumentException(
+                "Formato inválido para dueDate. Use yyyy-MM-dd (ex: 2025-12-20) ou dd/MM/yyyy (ex: 20/12/2025)."
+        );
+    }
+
+    private List<TransactionData> parsePdf(InputStream inputStream, String password, String dueDateOverride) throws IOException {
+        LocalDate dueDateFromRequest = null;
+        if (dueDateOverride != null && !dueDateOverride.isBlank()) {
+            dueDateFromRequest = parseDueDateOverrideOrThrow(dueDateOverride);
+        }
+
+        try (PDDocument document = (password != null && !password.isBlank())
+                ? PDDocument.load(inputStream, password)
+                : PDDocument.load(inputStream)) {
+            try {
+                document.setAllSecurityToBeRemoved(true);
+            } catch (Exception ignored) {
+            }
+
+            PDFTextStripper stripper = new PDFTextStripper();
+            String text = stripper.getText(document);
+            if (text == null || text.isBlank()) {
+                return List.of();
+            }
+
+            log.info("[InvoiceUpload] PDF extracted sample: {}", (text.length() > 500 ? text.substring(0, 500) : text));
+
+            var parserOpt = invoiceParserFactory.getParser(text);
+            if (parserOpt.isEmpty()) {
+                throw new IllegalArgumentException("Layout de fatura não suportado.");
+            }
+            InvoiceParserStrategy parser = parserOpt.get();
+
+            LocalDate invoiceDueDate = parser.extractDueDate(text);
+            if (invoiceDueDate == null && dueDateFromRequest != null) {
+                log.warn("[InvoiceUpload] Using dueDate override from request: {}", dueDateFromRequest);
+                invoiceDueDate = dueDateFromRequest;
+            }
+            if (invoiceDueDate == null) {
+                throw new IllegalArgumentException(
+                        "Não foi possível determinar a data de vencimento da fatura. " +
+                                "O processamento foi interrompido para evitar lançamentos incorretos."
+                );
+            }
+
+            List<com.ella.backend.services.invoices.parsers.TransactionData> parsed = parser.extractTransactions(text);
+            List<TransactionData> transactions = new ArrayList<>();
+
+            for (com.ella.backend.services.invoices.parsers.TransactionData p : parsed) {
+                InstallmentInfo installment = (p.installmentNumber != null && p.installmentTotal != null)
+                        ? new InstallmentInfo(p.installmentNumber, p.installmentTotal)
+                        : null;
+
+                TransactionData data = new TransactionData(
+                        p.description,
+                        p.amount,
+                        p.type,
+                        p.category != null ? p.category : "Outros",
+                        p.date,
+                        p.cardName,
+                        p.scope,
+                        installment
+                );
+                data.dueDate = invoiceDueDate;
+                transactions.add(data);
+            }
+
+            log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
+                    parser.getClass().getSimpleName(), invoiceDueDate, transactions.size());
+
+            return transactions;
+        } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
+            if (password != null && !password.isBlank()) {
+                throw new IllegalArgumentException("Senha incorreta para o arquivo PDF.");
+            }
+            throw new IllegalArgumentException("O arquivo PDF está protegido por senha. Por favor, forneça a senha.");
+        }
+    }
+private List<TransactionData> parsePdf(InputStream inputStream, String password) throws IOException {
         try (PDDocument document = (password != null && !password.isBlank())
                 ? PDDocument.load(inputStream, password)
                 : PDDocument.load(inputStream)) {

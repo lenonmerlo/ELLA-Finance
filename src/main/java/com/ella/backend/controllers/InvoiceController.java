@@ -110,7 +110,8 @@ public class InvoiceController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<InvoiceUploadResponseDTO>> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "password", required = false) String password) {
+            @RequestParam(value = "password", required = false) String password,
+            @RequestParam(value = "dueDate", required = false) String dueDate) {
         if (file == null || file.isEmpty()) {
             return ResponseEntity.badRequest().body(
                     ApiResponse.error("Arquivo ausente ou vazio")
@@ -118,7 +119,7 @@ public class InvoiceController {
         }
 
         try {
-            InvoiceUploadResponseDTO payload = uploadService.processInvoice(file, password);
+            InvoiceUploadResponseDTO payload = uploadService.processInvoice(file, password, dueDate);
             return ResponseEntity.status(201).body(
                     ApiResponse.success(payload, "Upload processado com sucesso")
             );
