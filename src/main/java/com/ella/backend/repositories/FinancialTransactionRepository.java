@@ -1,6 +1,7 @@
 package com.ella.backend.repositories;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -42,4 +43,6 @@ public interface FinancialTransactionRepository extends JpaRepository<FinancialT
             TransactionType type,
             Pageable pageable
     );
+
+        List<FinancialTransaction> findByPersonAndIdIn(Person person, Collection<UUID> ids);
 }

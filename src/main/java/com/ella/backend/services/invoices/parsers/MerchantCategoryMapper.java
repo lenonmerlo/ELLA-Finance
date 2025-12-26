@@ -104,6 +104,18 @@ final class MerchantCategoryMapper {
         if (n.contains("AIRBNB")) return "Hospedagem";
         if (containsAny(n, nCompact, "BOOKING", "BOOKING COM", "EXPEDIA", "TRIVAGO")) return "Hospedagem";
 
+        // Tickets/viagem (ex.: TICKETE...TRAV..., agências de viagem)
+        if (containsAny(n, nCompact,
+                "TICKETE",
+                "TICKETEKET",
+                "TICKETMASTER",
+                "TRAVEL",
+                "TRAVELCO",
+                "TRAVE",
+                "TRAV ")) {
+            return "Viagem";
+        }
+
         // Companhias aéreas (Viagem)
         // Atenção a falsos positivos por substring curta (ex.: "GOL" dentro de "GOLD'S GYM"; "AZUL" dentro de "ZONA AZUL")
         if (containsAny(n, nCompact, "LATAM", "UNITED")
@@ -137,6 +149,11 @@ final class MerchantCategoryMapper {
                 "SAUCONY",
                 "CONVERSE",
                 "VANS")) {
+            return "Vestuário";
+        }
+
+        // Marcas premium (ex.: compras em viagem)
+        if (containsAny(n, nCompact, "FERRAGAMO", "SALVATORE FERRAGAMO")) {
             return "Vestuário";
         }
 
@@ -311,6 +328,11 @@ final class MerchantCategoryMapper {
             return "E-commerce";
         }
 
+        // Apple Store (compra física/loja) — não confundir com APPLE.COM/BILL que é assinatura
+        if ((n.contains("APPLE") && n.contains("STORE")) && !n.contains("APPLE COM BILL")) {
+            return "E-commerce";
+        }
+
         // ===== Supermercados / Alimentação =====
         if (containsAny(n, nCompact,
                 "CARREFOUR",
@@ -354,8 +376,11 @@ final class MerchantCategoryMapper {
                 || n.contains("CHURRASC")
                 || n.contains("CHOPPERIA")
                 || n.contains("RESTAURANTE")
+                || n.contains("RESTAURANT")
                 || n.contains("BOTECO")
                 || n.contains("BUTECO")
+                || (n.contains("STATUE") && (n.contains("CRUISES") || n.contains("LIBERTY") || n.contains("TICK")))
+                || n.contains("TENNIS")
                 || n.contains("CASA DE SHOW")
                 || n.contains("FLUENTE")
                 || n.contains("BEBIDA")
@@ -364,6 +389,11 @@ final class MerchantCategoryMapper {
                 || n.contains("CHURRASCANAL")
                 || n.contains("CHOPPERIA DA PRACA")) {
             return "Lazer";
+        }
+
+        // Alimentação específica (restaurantes internacionais nem sempre vêm com palavras-chave comuns)
+        if (n.contains("DIM SUM")) {
+            return "Alimentação";
         }
 
         // ===== Educação =====

@@ -17,6 +17,8 @@ public record FinancialTransactionResponseDTO(
         TransactionType type,
         TransactionScope scope,
         String category,
+        String tripId,
+        String tripSubcategory,
         LocalDate transactionDate,
         LocalDate purchaseDate,
         LocalDate dueDate,

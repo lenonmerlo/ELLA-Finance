@@ -48,6 +48,8 @@ public class FinancialTransactionMapper {
                 entity.getType(),
                 entity.getScope(),
                 entity.getCategory(),
+                entity.getTripId() != null ? entity.getTripId().toString() : null,
+                entity.getTripSubcategory(),
                 entity.getTransactionDate(),
                 entity.getPurchaseDate(),
                 entity.getDueDate(),

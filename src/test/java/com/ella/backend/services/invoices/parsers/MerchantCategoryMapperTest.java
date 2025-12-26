@@ -14,6 +14,7 @@ class MerchantCategoryMapperTest {
         assertEquals("Lazer", MerchantCategoryMapper.categorize("BOTECO DA ESQUINA", TransactionType.EXPENSE));
         assertEquals("Lazer", MerchantCategoryMapper.categorize("CASA DE SHOWS XYZ", TransactionType.EXPENSE));
         assertEquals("Lazer", MerchantCategoryMapper.categorize("FLUENTE", TransactionType.EXPENSE));
+        assertEquals("Lazer", MerchantCategoryMapper.categorize("BALTHAZAR RESTAURANT NEW YORK", TransactionType.EXPENSE));
     }
 
     @Test
@@ -111,5 +112,17 @@ class MerchantCategoryMapperTest {
         assertEquals("Seguro", MerchantCategoryMapper.categorize("Pepay*Segurofatura", TransactionType.EXPENSE));
         assertEquals("Assinaturas", MerchantCategoryMapper.categorize("D*Google Gardenscape", TransactionType.EXPENSE));
         assertEquals("Assinaturas", MerchantCategoryMapper.categorize("GOOGLE BRASIL PAGAMENTOS LTDA.", TransactionType.EXPENSE));
+    }
+
+    @Test
+    void mapsTripExampleMerchants() {
+        assertEquals("Taxas e Juros", MerchantCategoryMapper.categorize("ANUIDADE DIFERENCIADA", TransactionType.EXPENSE));
+        assertEquals("Viagem", MerchantCategoryMapper.categorize("TicketeTICKETE CO TRAVEDubai", TransactionType.EXPENSE));
+        assertEquals("Lazer", MerchantCategoryMapper.categorize("STATUE CRUISES 877-523-9849", TransactionType.EXPENSE));
+        assertEquals("Vestuário", MerchantCategoryMapper.categorize("FERRAGAMO New York", TransactionType.EXPENSE));
+        assertEquals("E-commerce", MerchantCategoryMapper.categorize("APPLE STORE #R095 NEW YORK", TransactionType.EXPENSE));
+        assertEquals("Lazer", MerchantCategoryMapper.categorize("WWW.STATUEOFLIBERTYTICK866-5689827", TransactionType.EXPENSE));
+        assertEquals("Alimentação", MerchantCategoryMapper.categorize("DIM SUM PALACE (46TH S 131-27305592", TransactionType.EXPENSE));
+        assertEquals("Lazer", MerchantCategoryMapper.categorize("2US TENNIS ASC FLUSHING", TransactionType.EXPENSE));
     }
 }

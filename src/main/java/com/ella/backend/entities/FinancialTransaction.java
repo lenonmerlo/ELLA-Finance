@@ -77,6 +77,13 @@ public class FinancialTransaction {
     @Column(nullable = false)
     private String category;
 
+        /** Agrupamento opcional de viagem (futuro: entidade Trip). */
+        private UUID tripId;
+
+        /** Categoria original preservada ao agrupar como Viagem. */
+        @Column(name = "trip_subcategory")
+        private String tripSubcategory;
+
     @Column(nullable = false)
     private LocalDate transactionDate;
 
