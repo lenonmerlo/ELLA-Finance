@@ -22,6 +22,11 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
     );
     private static final DateTimeFormatter DUE_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
+        // Ex.: "Titular: MARIANA OLIVEIRA" (variações comuns em PDFs)
+        private static final Pattern HOLDER_PATTERN = Pattern.compile(
+            "(?im)^\\s*(?:nome\\s+do\\s+titular|titular|cliente|nome)\\s*[:\\-]?\\s*(.+?)\\s*$"
+        );
+
     // Ex.: 20/08 | PGTO. COBRANCA ... | BR | R$ -84,00
     // Ex.: 21/08 | WWW.STATUE... | TX | R$ 79,68
     private static final Pattern TX_LINE_PATTERN = Pattern.compile(
@@ -73,6 +78,8 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
         if (text == null || text.isBlank()) return Collections.emptyList();
         LocalDate dueDate = extractDueDate(text);
         if (dueDate == null) return Collections.emptyList();
+
+        String holderName = extractHolderName(text);
 
         List<TransactionData> out = new ArrayList<>();
 
@@ -150,6 +157,9 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
                     "Banco do Brasil",
                     TransactionScope.PERSONAL
             );
+            if (holderName != null && !holderName.isBlank()) {
+                td.cardholderName = holderName;
+            }
             out.add(td);
 
             if (!country.isEmpty() && !"BR".equalsIgnoreCase(country)) {
@@ -158,6 +168,22 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
         }
 
         return out;
+    }
+
+    private String extractHolderName(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher m = HOLDER_PATTERN.matcher(text);
+        while (m.find()) {
+            String v = safeTrim(m.group(1));
+            if (v.isEmpty()) continue;
+            // Evita capturar linhas genéricas do banco
+            String n = normalizeForSearch(v);
+            if (n.equals("banco do brasil") || n.equals("ourocard") || n.equals("bb")) {
+                continue;
+            }
+            return v;
+        }
+        return null;
     }
 
     private boolean isCategoryHeader(String line) {

@@ -15,6 +15,10 @@ public class TransactionData {
     public LocalDate date;
     public LocalDate dueDate;
     public String cardName;
+    /**
+     * Nome do titular do cartão (quando o PDF fornece), separado do nome do banco/cartão.
+     */
+    public String cardholderName;
     public Integer installmentNumber;
     public Integer installmentTotal;
 
@@ -38,5 +42,9 @@ public class TransactionData {
 
     public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public void setCardholderName(String cardholderName) {
+        this.cardholderName = cardholderName;
     }
 }

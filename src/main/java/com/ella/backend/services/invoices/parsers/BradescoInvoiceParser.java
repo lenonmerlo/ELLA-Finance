@@ -21,6 +21,9 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
     private static final Pattern CARD_PATTERN = Pattern.compile(
             "(?is)\\bcart[ãa]o\\b\\s*[:\\-]?\\s*([^\\r\\n]+)");
 
+        private static final Pattern HOLDER_PATTERN = Pattern.compile(
+            "(?im)^\\s*titular\\s*[:\\-]?\\s*(.+?)\\s*$");
+
     private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
             "(?m)^(\\d{2}/\\d{2})\\s+(.+?)\\s{2,}(-?[\\d.]+,\\d{2})\\s*$");
 
@@ -58,6 +61,7 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
         LocalDate dueDate = extractDueDate(text);
         String cardName = extractCardName(text);
+        String holderName = extractHolderName(text);
 
         String section = extractLaunchesSection(text);
 
@@ -87,11 +91,25 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
                     TransactionScope.PERSONAL
             );
 
+            if (holderName != null && !holderName.isBlank()) {
+                td.cardholderName = holderName;
+            }
+
             applyInstallmentInfo(td, desc);
             out.add(td);
         }
 
         return out;
+    }
+
+    private String extractHolderName(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher m = HOLDER_PATTERN.matcher(text);
+        if (m.find()) {
+            String v = safeTrim(m.group(1));
+            return v.isEmpty() ? null : v;
+        }
+        return null;
     }
 
     private String extractLaunchesSection(String text) {

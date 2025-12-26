@@ -52,6 +52,7 @@ class BradescoInvoiceParserTest {
         assertEquals("Hospedagem", t1.category);
         assertEquals(LocalDate.of(2025, 10, 27), t1.date);
         assertNotNull(t1.cardName);
+        assertEquals("MARIANA OLIVEIRA DE CASTRO", t1.cardholderName);
         assertEquals(1, t1.installmentNumber);
         assertEquals(1, t1.installmentTotal);
 

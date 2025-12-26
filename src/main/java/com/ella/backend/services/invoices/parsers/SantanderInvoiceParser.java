@@ -83,6 +83,7 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
         List<TransactionData> out = new ArrayList<>();
 
         String currentCardName = null;
+        String currentHolderName = null;
         Section section = Section.NONE;
 
         String[] lines = text.split("\\r?\\n");
@@ -95,9 +96,10 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
                 String holderName = safeTrim(holder.group(1));
                 String first4 = safeTrim(holder.group(2));
                 String last4 = safeTrim(holder.group(3));
-                currentCardName = (holderName.isEmpty() ? "Santander" : holderName)
-                        + (last4.isEmpty() ? "" : " " + last4)
-                        + (first4.isEmpty() ? "" : " (" + first4 + ")");
+                currentHolderName = holderName.isEmpty() ? null : holderName;
+                currentCardName = "Santander"
+                    + (last4.isEmpty() ? "" : " " + last4)
+                    + (first4.isEmpty() ? "" : " (" + first4 + ")");
                 section = Section.NONE;
                 continue;
             }
@@ -119,7 +121,12 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
             if (!looksLikeTxLine(line)) continue;
 
             TransactionData td = parseTxLine(line, currentCardName, dueDate, section);
-            if (td != null) out.add(td);
+            if (td != null) {
+                if (currentHolderName != null && !currentHolderName.isBlank()) {
+                    td.cardholderName = currentHolderName;
+                }
+                out.add(td);
+            }
         }
 
         return out;

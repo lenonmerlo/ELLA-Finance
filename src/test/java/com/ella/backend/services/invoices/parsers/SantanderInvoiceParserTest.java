@@ -53,6 +53,7 @@ class SantanderInvoiceParserTest {
         assertEquals(LocalDate.of(2025, 11, 17), t1.date);
         assertNotNull(t1.cardName);
         assertTrue(t1.cardName.contains("8854"));
+        assertEquals("ATILLA FERREGUETTI", t1.cardholderName);
         assertEquals(0, t1.amount.compareTo(new BigDecimal("43.75")));
 
         TransactionData t2 = txs.get(1);
@@ -75,6 +76,7 @@ class SantanderInvoiceParserTest {
         assertEquals(LocalDate.of(2025, 12, 5), t4.date);
         assertNotNull(t4.cardName);
         assertTrue(t4.cardName.contains("8830"));
+        assertEquals("PABLO BONFANTE", t4.cardholderName);
         assertEquals(1, t4.installmentNumber);
         assertEquals(10, t4.installmentTotal);
         assertEquals(0, t4.amount.compareTo(new BigDecimal("369.48")));
