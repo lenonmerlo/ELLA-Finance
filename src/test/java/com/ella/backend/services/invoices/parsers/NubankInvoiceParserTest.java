@@ -18,6 +18,7 @@ class NubankInvoiceParserTest {
     void detectsAndParsesDueDateTransactionsAndPayments() {
         String text = String.join("\n",
                 "Olá, Lia.",
+            "NUBANK - Nu Pagamentos S.A.",
                 "Esta é a sua fatura de dezembro, no valor de R$ 1.107,60",
                 "",
                 "Data de vencimento: 12 DEZ 2025",

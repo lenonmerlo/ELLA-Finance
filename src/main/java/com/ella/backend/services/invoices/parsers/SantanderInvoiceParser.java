@@ -50,9 +50,10 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
     @Override
     public boolean isApplicable(String text) {
         if (text == null || text.isBlank()) return false;
+        String normalizedText = normalizeNumericDates(text);
         String n = normalizeForSearch(text);
         boolean hasSantander = n.contains("santander");
-        boolean hasDue = DUE_DATE_PATTERN.matcher(text).find() || HEADER_TOTAL_AND_DUE_PATTERN.matcher(text).find();
+        boolean hasDue = DUE_DATE_PATTERN.matcher(normalizedText).find() || HEADER_TOTAL_AND_DUE_PATTERN.matcher(normalizedText).find();
         boolean hasHolders = HOLDER_BLOCK_PATTERN.matcher(text).find();
         return hasDue && (hasSantander || hasHolders || n.contains("total a pagar"));
     }
@@ -61,16 +62,22 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
     public LocalDate extractDueDate(String text) {
         if (text == null || text.isBlank()) return null;
 
-        Matcher m1 = HEADER_TOTAL_AND_DUE_PATTERN.matcher(text);
-        if (m1.find()) {
-            return parseDueDate(m1.group(2), text);
-        }
+        String normalizedText = normalizeNumericDates(text);
 
-        Matcher m2 = DUE_DATE_PATTERN.matcher(text);
-        if (m2.find()) {
-            return parseDueDate(m2.group(2), text);
-        }
+        List<Pattern> patterns = List.of(
+                HEADER_TOTAL_AND_DUE_PATTERN,
+                DUE_DATE_PATTERN
+        );
 
+        for (Pattern p : patterns) {
+            Matcher m = p.matcher(normalizedText);
+            if (!m.find()) continue;
+
+            // HEADER_TOTAL_AND_DUE_PATTERN has group(2), DUE_DATE_PATTERN has group(2)
+            String value = m.group(2);
+            LocalDate due = parseDueDate(value, normalizedText);
+            if (due != null) return due;
+        }
         return null;
     }
 
@@ -301,6 +308,9 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
             String v = value.trim();
             if (v.isEmpty()) return null;
 
+            // Defensive: tolerate spaces around separators if any slipped through.
+            v = v.replaceAll("\\s+", "");
+
             // dd/MM/yyyy
             if (v.matches("^\\d{2}/\\d{2}/\\d{4}$")) {
                 return LocalDate.parse(v, DUE_DATE_DDMMYYYY);
@@ -333,6 +343,14 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
             }
         }
         return null;
+    }
+
+    private String normalizeNumericDates(String text) {
+        if (text == null || text.isBlank()) return "";
+        String t = text.replace('\u00A0', ' ');
+        t = t.replaceAll("(?<=\\d)\\s+(?=\\d)", "");
+        t = t.replaceAll("\\s*([\\./-])\\s*", "$1");
+        return t;
     }
 
     private String safeTrim(String s) {

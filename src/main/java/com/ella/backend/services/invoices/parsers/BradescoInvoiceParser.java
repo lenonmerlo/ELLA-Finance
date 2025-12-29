@@ -16,7 +16,8 @@ import com.ella.backend.enums.TransactionType;
 public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
     private static final Pattern DUE_DATE_PATTERN = Pattern.compile(
-            "(?is)\\bvencimento\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}/\\d{4})");
+            "(?is)\\b(venc(?:imento)?|vct(?:o)?|venc\\.)\\b\\s*[:\\-]?" +
+                    "\\s*(\\d{2}\\s*/\\s*\\d{2}(?:\\s*/\\s*\\d{2,4})?)");
 
     private static final Pattern CARD_PATTERN = Pattern.compile(
             "(?is)\\bcart[ãa]o\\b\\s*[:\\-]?\\s*([^\\r\\n]+)");
@@ -41,14 +42,29 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         boolean hasLaunch = n.contains("lancamentos") || n.contains("historico de lancamentos");
         return hasBank && hasDue && (hasTotal || hasLaunch);
     }
-
     @Override
     public LocalDate extractDueDate(String text) {
         if (text == null || text.isBlank()) return null;
         Matcher m = DUE_DATE_PATTERN.matcher(text);
         if (m.find()) {
             try {
-                return LocalDate.parse(m.group(1).trim(), DUE_DATE_FORMATTER);
+                String raw = safeTrim(m.group(2));
+                String cleaned = raw.replaceAll("\\s+", "");
+
+                if (cleaned.matches("\\d{2}/\\d{2}/\\d{2}$")) {
+                    cleaned = cleaned.substring(0, cleaned.length() - 2) + "20" + cleaned.substring(cleaned.length() - 2);
+                }
+
+                if (cleaned.matches("\\d{2}/\\d{2}$")) {
+                    int year = LocalDate.now().getYear();
+                    LocalDate candidate = LocalDate.parse(cleaned + "/" + year, DUE_DATE_FORMATTER);
+                    if (candidate.isBefore(LocalDate.now())) {
+                        candidate = LocalDate.parse(cleaned + "/" + (year + 1), DUE_DATE_FORMATTER);
+                    }
+                    return candidate;
+                }
+
+                return LocalDate.parse(cleaned, DUE_DATE_FORMATTER);
             } catch (Exception ignored) {
             }
         }
@@ -258,3 +274,5 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         return s == null ? "" : s.trim();
     }
 }
+
+

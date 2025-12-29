@@ -17,10 +17,16 @@ import com.ella.backend.enums.TransactionType;
 
 public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
 
-    private static final Pattern DUE_DATE_PATTERN = Pattern.compile(
-            "(?is)\\bVencimento\\b\\s+(\\d{2}/\\d{2}/\\d{4})"
+    private static final List<Pattern> DUE_DATE_PATTERNS = List.of(
+        // Ex.: "Vencimento 20/12/2025", "VENCIMENTO: 20.12.2025", "Data de vencimento - 20-12-2025"
+        Pattern.compile("(?is)\\b(?:venc(?:imento)?|vct(?:o)?|data\\s+de\\s+vencimento)\\b[^0-9]{0,30}(\\d{2})\\s*[\\./-]\\s*(\\d{2})\\s*[\\./-]\\s*(\\d{4})"),
+        // Ex.: "Vencimento 20/12" (sem ano)
+        Pattern.compile("(?is)\\b(?:venc(?:imento)?|vct(?:o)?|data\\s+de\\s+vencimento)\\b[^0-9]{0,30}(\\d{2})\\s*[\\./-]\\s*(\\d{2})(?!\\s*[\\./-]\\s*\\d{4})"),
+        // Ultra-flexível quando o PDF quebra dígitos: "Vencimento: 2 0 / 1 2 / 2 0 2 5"
+        Pattern.compile("(?is)\\b(?:venc(?:imento)?|vct(?:o)?|data\\s+de\\s+vencimento)\\b[^0-9]{0,60}([0-9][0-9\\s\\./-]{5,30})")
     );
-    private static final DateTimeFormatter DUE_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+    private static final DateTimeFormatter DUE_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/uuuu");
 
         // Ex.: "Titular: MARIANA OLIVEIRA" (variações comuns em PDFs)
         private static final Pattern HOLDER_PATTERN = Pattern.compile(
@@ -55,22 +61,125 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
     public boolean isApplicable(String text) {
         if (text == null || text.isBlank()) return false;
         String n = normalizeForSearch(text);
-        boolean hasBrand = n.contains("banco do brasil") || n.contains("ourocard") || n.contains("bb");
-        boolean hasDue = DUE_DATE_PATTERN.matcher(text).find();
-        // Evita falso positivo por "BB" genérico: exige vencimento
-        return hasBrand && hasDue;
+
+        // IMPORTANT: vários bancos têm blocos "Resumo da fatura" / "Total desta fatura".
+        // Para evitar falso-positivo (ex.: Itaú), exigimos marcadores de marca do BB.
+        boolean hasBrandMarkers = n.contains("banco do brasil")
+            || n.contains("ourocard")
+            || n.contains("bb.com.br")
+            || (n.contains("ouvidoria") && n.contains("bb"));
+        if (!hasBrandMarkers) return false;
+
+        // Sinais de layout para reduzir match em texto avulso.
+        boolean hasTotalMarker = n.contains("total desta fatura") || n.contains("total da fatura");
+        boolean hasInvoiceLayoutSignals =
+            (n.contains("resumo da fatura") && hasTotalMarker)
+                || (n.contains("pagamento efetuado") && n.contains("lancamentos atuais"));
+        return hasInvoiceLayoutSignals;
     }
 
     @Override
     public LocalDate extractDueDate(String text) {
         if (text == null || text.isBlank()) return null;
-        Matcher m = DUE_DATE_PATTERN.matcher(text);
-        if (!m.find()) return null;
+
+        String normalized = normalizeNumericDates(text);
+        Integer inferredYear = inferYearFromText(normalized);
+
+        for (int i = 0; i < DUE_DATE_PATTERNS.size(); i++) {
+            Pattern p = DUE_DATE_PATTERNS.get(i);
+            Matcher m = p.matcher(normalized);
+            if (!m.find()) continue;
+
+            try {
+                // Pattern 1: dia/mes/ano
+                if (i == 0) {
+                    Integer day = parseIntOrNull(m.group(1));
+                    Integer month = parseIntOrNull(m.group(2));
+                    Integer year = parseIntOrNull(m.group(3));
+                    return safeDate(year, month, day);
+                }
+
+                // Pattern 2: dia/mes (sem ano)
+                if (i == 1) {
+                    Integer day = parseIntOrNull(m.group(1));
+                    Integer month = parseIntOrNull(m.group(2));
+                    Integer year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
+                    return safeDate(year, month, day);
+                }
+
+                // Pattern 3: dígitos soltos
+                if (i == 2) {
+                    String digits = safeTrim(m.group(1)).replaceAll("\\D", "");
+                    if (digits.length() >= 8) {
+                        Integer day = parseIntOrNull(digits.substring(0, 2));
+                        Integer month = parseIntOrNull(digits.substring(2, 4));
+                        Integer year = parseIntOrNull(digits.substring(4, 8));
+                        return safeDate(year, month, day);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        // Última tentativa: se existir um dd/MM/yyyy após a palavra vencimento em texto não-normalizado
+        // (caso raro onde a normalização atrapalhe)
         try {
-            return LocalDate.parse(m.group(1), DUE_DATE_FORMATTER);
+            Matcher m = Pattern.compile("(?is)\\b(?:venc(?:imento)?|vct(?:o)?|data\\s+de\\s+vencimento)\\b[^0-9]{0,30}(\\d{2}/\\d{2}/\\d{4})")
+                    .matcher(text);
+            if (m.find()) {
+                return LocalDate.parse(m.group(1).trim(), DUE_DATE_FORMATTER);
+            }
+        } catch (Exception ignored) {
+        }
+
+        return null;
+    }
+
+    private Integer inferYearFromText(String text) {
+        try {
+            if (text == null || text.isBlank()) return null;
+            Matcher m = Pattern.compile("(?s)\\b\\d{2}/\\d{2}/(\\d{4})\\b").matcher(text);
+            if (m.find()) {
+                return parseIntOrNull(m.group(1));
+            }
+            return null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String normalizeNumericDates(String text) {
+        if (text == null || text.isBlank()) return "";
+        String t = text.replace('\u00A0', ' ');
+        // Remove espaços entre dígitos ("2 2 / 1 2 / 2 0 2 5" -> "22/12/2025")
+        t = t.replaceAll("(?<=\\d)\\s+(?=\\d)", "");
+        // Normaliza espaços ao redor de separadores
+        t = t.replaceAll("\\s*([\\./-])\\s*", "$1");
+        return t;
+    }
+
+    private Integer parseIntOrNull(String value) {
+        try {
+            if (value == null) return null;
+            String v = value.trim();
+            if (v.isEmpty()) return null;
+            return Integer.parseInt(v);
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private LocalDate safeDate(Integer year, Integer month, Integer day) {
+        try {
+            if (year == null || month == null || day == null) return null;
+            return LocalDate.of(year, month, day);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String safeTrim(String s) {
+        return s == null ? "" : s.trim();
     }
 
     @Override
@@ -257,9 +366,5 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
 
     private String normalizeForSearch(String s) {
         return normalize(s).toLowerCase(Locale.ROOT);
-    }
-
-    private String safeTrim(String s) {
-        return s == null ? "" : s.trim();
     }
 }

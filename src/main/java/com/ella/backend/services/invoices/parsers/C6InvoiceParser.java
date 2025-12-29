@@ -40,10 +40,30 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
     @Override
     public LocalDate extractDueDate(String text) {
         if (text == null || text.isBlank()) return null;
-        Matcher m = DUE_DATE_PATTERN.matcher(text);
-        if (m.find()) {
-            return parseDueDate(m.group(1));
+
+        String normalized = normalizeNumericDates(text);
+
+        List<Pattern> patterns = List.of(
+                // dd/MM/yyyy
+                Pattern.compile("(?is)\\bvencimento\\b\\s*[:\\-]?\\s*(\\d{2})\\s*/\\s*(\\d{2})\\s*/\\s*(\\d{4})"),
+                // fallback compat (single group)
+                DUE_DATE_PATTERN
+        );
+
+        for (Pattern p : patterns) {
+            Matcher m = p.matcher(normalized);
+            if (!m.find()) continue;
+
+            String value;
+            if (m.groupCount() >= 3) {
+                value = m.group(1) + "/" + m.group(2) + "/" + m.group(3);
+            } else {
+                value = m.group(1);
+            }
+            LocalDate due = parseDueDate(value);
+            if (due != null) return due;
         }
+
         return null;
     }
 
@@ -128,6 +148,16 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String normalizeNumericDates(String text) {
+        if (text == null || text.isBlank()) return "";
+        String t = text.replace('\u00A0', ' ');
+        // Remove spaces between digits that PDFBox may insert ("2 2/1 2/2025").
+        t = t.replaceAll("(?<=\\d)\\s+(?=\\d)", "");
+        // Normalize spaces around separators.
+        t = t.replaceAll("\\s*([\\./-])\\s*", "$1");
+        return t;
     }
 
     private Integer parseIntOrNull(String value) {

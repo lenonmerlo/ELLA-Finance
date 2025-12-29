@@ -33,7 +33,7 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
         if (text == null || text.isBlank()) return false;
         String n = normalizeForSearch(text);
         boolean hasSicrediMarker = n.contains("sicredi");
-        boolean hasDue = DUE_DATE_PATTERN.matcher(text).find();
+        boolean hasDue = DUE_DATE_PATTERN.matcher(normalizeNumericDates(text)).find();
         boolean hasTableMarkers = n.contains("data e hora") && (n.contains("valor em reais") || n.contains("valor em reais"));
         return (hasSicrediMarker && hasDue) || (hasDue && hasTableMarkers);
     }
@@ -41,10 +41,29 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
     @Override
     public LocalDate extractDueDate(String text) {
         if (text == null || text.isBlank()) return null;
-        Matcher m = DUE_DATE_PATTERN.matcher(text);
-        if (m.find()) {
+
+        String normalizedText = normalizeNumericDates(text);
+
+        List<Pattern> patterns = List.of(
+                // dd/MM/yyyy
+                Pattern.compile("(?is)\\bvencimento\\b\\s*[:\\-]?\\s*(\\d{2})\\s*/\\s*(\\d{2})\\s*/\\s*(\\d{4})"),
+                // legacy single-group
+                DUE_DATE_PATTERN
+        );
+
+        for (Pattern p : patterns) {
+            Matcher m = p.matcher(normalizedText);
+            if (!m.find()) continue;
+
+            String value;
+            if (m.groupCount() >= 3) {
+                value = m.group(1) + "/" + m.group(2) + "/" + m.group(3);
+            } else {
+                value = m.group(1);
+            }
+
             try {
-                return LocalDate.parse(m.group(1).trim(), DUE_DATE_FORMATTER);
+                return LocalDate.parse(value.trim().replaceAll("\\s+", ""), DUE_DATE_FORMATTER);
             } catch (Exception ignored) {
             }
         }
@@ -244,6 +263,14 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private String normalizeNumericDates(String text) {
+        if (text == null || text.isBlank()) return "";
+        String t = text.replace('\u00A0', ' ');
+        t = t.replaceAll("(?<=\\d)\\s+(?=\\d)", "");
+        t = t.replaceAll("\\s*([\\./-])\\s*", "$1");
+        return t;
     }
 
     private static Map<String, Integer> buildMonths() {

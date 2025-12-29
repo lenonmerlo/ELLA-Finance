@@ -48,10 +48,18 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
     public boolean isApplicable(String text) {
         if (text == null || text.isBlank()) return false;
         String n = normalizeForSearch(text);
-        // Nubank normalmente tem estes marcadores no cabeçalho e nas páginas
+
+        // Evita falso-positivo: vários bancos contêm "data de vencimento", "transações" e "fatura".
+        // Nubank costuma trazer identificadores claros da marca (ex.: "Nubank" / "Nu Pagamentos").
+        boolean hasBrandMarkers = n.contains("nubank")
+            || n.contains("nu pagamentos")
+            || n.contains("nucard")
+            || n.contains("nu bank");
+        if (!hasBrandMarkers) return false;
+
         return n.contains("data de vencimento")
-                && n.contains("transacoes")
-                && (n.contains("esta e a sua fatura") || n.contains("fatura"));
+            && n.contains("transacoes")
+            && (n.contains("esta e a sua fatura") || n.contains("fatura"));
     }
 
     @Override
