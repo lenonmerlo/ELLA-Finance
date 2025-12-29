@@ -19,7 +19,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -41,6 +40,9 @@ import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
+import com.ella.backend.services.ocr.OcrProperties;
+import com.ella.backend.services.ocr.PdfOcrExtractor;
+import com.ella.backend.services.ocr.PdfTextExtractor;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +53,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class InvoiceUploadService {
 
+    private static final String BUILD_MARKER = "2025-12-29T1022";
+
     private final FinancialTransactionRepository transactionRepository;
     private final UserService userService;
     private final ClassificationService classificationService;
@@ -58,6 +62,9 @@ public class InvoiceUploadService {
     private final InvoiceRepository invoiceRepository;
     private final InstallmentRepository installmentRepository;
     private final InvoiceParserFactory invoiceParserFactory;
+    private final PdfTextExtractor pdfTextExtractor;
+    private final PdfOcrExtractor pdfOcrExtractor;
+    private final OcrProperties ocrProperties;
     
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
@@ -203,21 +210,46 @@ public class InvoiceUploadService {
             } catch (Exception ignored) {
             }
 
-            PDFTextStripper stripper = new PDFTextStripper();
-            String text = stripper.getText(document);
-            if (text == null || text.isBlank()) {
+            String text = pdfTextExtractor.extractText(document);
+            if (text == null) text = "";
+            if (text.isBlank()) {
                 return List.of();
             }
 
-            log.info("[InvoiceUpload] PDF extracted sample: {}", (text.length() > 500 ? text.substring(0, 500) : text));
+            log.info("[InvoiceUpload][BUILD_MARKER={}] PDF extracted sample: {}", BUILD_MARKER,
+                    (text.length() > 500 ? text.substring(0, 500) : text));
 
             var parserOpt = invoiceParserFactory.getParser(text);
             if (parserOpt.isEmpty()) {
                 throw new IllegalArgumentException("Layout de fatura não suportado.");
             }
             InvoiceParserStrategy parser = parserOpt.get();
+            log.info("[InvoiceUpload] Selected parser={} (buildMarker={})", parser.getClass().getSimpleName(), BUILD_MARKER);
 
             LocalDate invoiceDueDate = parser.extractDueDate(text);
+            InvoiceParserStrategy parserToUse = parser;
+            String textToUse = text;
+
+            if (invoiceDueDate == null && ocrProperties.isEnabled()) {
+                log.warn("[InvoiceUpload][OCR] Due date not found via PDF text. Retrying once with OCR...");
+                String ocrText = pdfOcrExtractor.extractText(document);
+                if (ocrText != null && !ocrText.isBlank()) {
+                    log.info("[InvoiceUpload][OCR] Extracted sample: {}",
+                            (ocrText.length() > 500 ? ocrText.substring(0, 500) : ocrText));
+
+                    var parserOptOcr = invoiceParserFactory.getParser(ocrText);
+                    InvoiceParserStrategy parserOcr = parserOptOcr.orElse(parser);
+                    LocalDate ocrDueDate = parserOcr.extractDueDate(ocrText);
+                    if (ocrDueDate != null) {
+                        invoiceDueDate = ocrDueDate;
+                        parserToUse = parserOcr;
+                        textToUse = ocrText;
+                        log.info("[InvoiceUpload][OCR] Using parser={} dueDate={}",
+                                parserToUse.getClass().getSimpleName(), invoiceDueDate);
+                    }
+                }
+            }
+
             if (invoiceDueDate == null && dueDateFromRequest != null) {
                 log.warn("[InvoiceUpload] Using dueDate override from request: {}", dueDateFromRequest);
                 invoiceDueDate = dueDateFromRequest;
@@ -229,7 +261,7 @@ public class InvoiceUploadService {
                 );
             }
 
-            List<com.ella.backend.services.invoices.parsers.TransactionData> parsed = parser.extractTransactions(text);
+            List<com.ella.backend.services.invoices.parsers.TransactionData> parsed = parserToUse.extractTransactions(textToUse);
             List<TransactionData> transactions = new ArrayList<>();
 
             for (com.ella.backend.services.invoices.parsers.TransactionData p : parsed) {
@@ -252,7 +284,7 @@ public class InvoiceUploadService {
             }
 
             log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
-                    parser.getClass().getSimpleName(), invoiceDueDate, transactions.size());
+                    parserToUse.getClass().getSimpleName(), invoiceDueDate, transactions.size());
 
             return transactions;
         } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
@@ -262,7 +294,7 @@ public class InvoiceUploadService {
             throw new IllegalArgumentException("O arquivo PDF está protegido por senha. Por favor, forneça a senha.");
         }
     }
-private List<TransactionData> parsePdf(InputStream inputStream, String password) throws IOException {
+    private List<TransactionData> parsePdf(InputStream inputStream, String password) throws IOException {
         try (PDDocument document = (password != null && !password.isBlank())
                 ? PDDocument.load(inputStream, password)
                 : PDDocument.load(inputStream)) {
@@ -271,21 +303,46 @@ private List<TransactionData> parsePdf(InputStream inputStream, String password)
             } catch (Exception ignored) {
             }
 
-            PDFTextStripper stripper = new PDFTextStripper();
-            String text = stripper.getText(document);
-            if (text == null || text.isBlank()) {
+            String text = pdfTextExtractor.extractText(document);
+            if (text == null) text = "";
+            if (text.isBlank()) {
                 return List.of();
             }
 
-            log.info("[InvoiceUpload] PDF extracted sample: {}", (text.length() > 500 ? text.substring(0, 500) : text));
+            log.info("[InvoiceUpload][BUILD_MARKER={}] PDF extracted sample: {}", BUILD_MARKER,
+                    (text.length() > 500 ? text.substring(0, 500) : text));
 
             var parserOpt = invoiceParserFactory.getParser(text);
             if (parserOpt.isEmpty()) {
                 throw new IllegalArgumentException("Layout de fatura não suportado.");
             }
             InvoiceParserStrategy parser = parserOpt.get();
+            log.info("[InvoiceUpload] Selected parser={} (buildMarker={})", parser.getClass().getSimpleName(), BUILD_MARKER);
 
             LocalDate invoiceDueDate = parser.extractDueDate(text);
+            InvoiceParserStrategy parserToUse = parser;
+            String textToUse = text;
+
+            if (invoiceDueDate == null && ocrProperties.isEnabled()) {
+                log.warn("[InvoiceUpload][OCR] Due date not found via PDF text. Retrying once with OCR...");
+                String ocrText = pdfOcrExtractor.extractText(document);
+                if (ocrText != null && !ocrText.isBlank()) {
+                    log.info("[InvoiceUpload][OCR] Extracted sample: {}",
+                            (ocrText.length() > 500 ? ocrText.substring(0, 500) : ocrText));
+
+                    var parserOptOcr = invoiceParserFactory.getParser(ocrText);
+                    InvoiceParserStrategy parserOcr = parserOptOcr.orElse(parser);
+                    LocalDate ocrDueDate = parserOcr.extractDueDate(ocrText);
+                    if (ocrDueDate != null) {
+                        invoiceDueDate = ocrDueDate;
+                        parserToUse = parserOcr;
+                        textToUse = ocrText;
+                        log.info("[InvoiceUpload][OCR] Using parser={} dueDate={}",
+                                parserToUse.getClass().getSimpleName(), invoiceDueDate);
+                    }
+                }
+            }
+
             if (invoiceDueDate == null) {
                 throw new IllegalArgumentException(
                         "Não foi possível determinar a data de vencimento da fatura. " +
@@ -293,7 +350,7 @@ private List<TransactionData> parsePdf(InputStream inputStream, String password)
                 );
             }
 
-            List<com.ella.backend.services.invoices.parsers.TransactionData> parsed = parser.extractTransactions(text);
+            List<com.ella.backend.services.invoices.parsers.TransactionData> parsed = parserToUse.extractTransactions(textToUse);
             List<TransactionData> transactions = new ArrayList<>();
 
             for (com.ella.backend.services.invoices.parsers.TransactionData p : parsed) {
@@ -316,7 +373,7 @@ private List<TransactionData> parsePdf(InputStream inputStream, String password)
             }
 
             log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
-                    parser.getClass().getSimpleName(), invoiceDueDate, transactions.size());
+                    parserToUse.getClass().getSimpleName(), invoiceDueDate, transactions.size());
 
             return transactions;
         } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
