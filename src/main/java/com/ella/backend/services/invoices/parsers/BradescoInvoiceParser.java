@@ -25,8 +25,8 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         private static final Pattern HOLDER_PATTERN = Pattern.compile(
             "(?im)^\\s*titular\\s*[:\\-]?\\s*(.+?)\\s*$");
 
-    private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
-            "(?m)^(\\d{2}/\\d{2})\\s+(.+?)\\s{2,}(-?[\\d.]+,\\d{2})\\s*$");
+        private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
+            "(?m)^(\\d{2}/\\d{2})(?:/\\d{2,4})?\\s+(.+?)\\s+(-?[\\d.]+,\\d{2})\\s*$");
 
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("(?i)\\bP/(\\d+)(?:\\s|$)");
 
@@ -138,13 +138,18 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
                 "HISTÓRICO DE LANÇAMENTOS",
                 "HISTORICO DE LANCAMENTOS");
 
-        int end = firstIndexOf(u,
-                "RESUMO DA FATURA",
-                "RESUMO");
+        // Se não encontramos um marcador claro de lançamentos, NÃO recorte pelo "RESUMO".
+        // Em muitos PDFs (especialmente via OCR) o texto pode conter "Resumo" no cabeçalho
+        // antes de aparecerem os lançamentos, e esse recorte causava txCount=0.
+        if (start < 0) {
+            return text;
+        }
 
-        if (start < 0) start = 0;
+        int end = firstIndexOfFrom(u, start,
+            "RESUMO DA FATURA",
+            "RESUMO");
+
         if (end < 0 || end <= start) end = text.length();
-
         return text.substring(start, end);
     }
 
@@ -154,6 +159,18 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         for (String needle : needles) {
             if (needle == null || needle.isBlank()) continue;
             int idx = haystack.indexOf(needle);
+            if (idx >= 0 && (best < 0 || idx < best)) best = idx;
+        }
+        return best;
+    }
+
+    private int firstIndexOfFrom(String haystack, int fromIndex, String... needles) {
+        if (haystack == null || haystack.isEmpty() || needles == null) return -1;
+        int start = Math.max(0, Math.min(fromIndex, haystack.length()));
+        int best = -1;
+        for (String needle : needles) {
+            if (needle == null || needle.isBlank()) continue;
+            int idx = haystack.indexOf(needle, start);
             if (idx >= 0 && (best < 0 || idx < best)) best = idx;
         }
         return best;

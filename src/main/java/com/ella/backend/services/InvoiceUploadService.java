@@ -228,11 +228,10 @@ public class InvoiceUploadService {
 
             LocalDate invoiceDueDate = parser.extractDueDate(text);
             InvoiceParserStrategy parserToUse = parser;
-            String textToUse = text;
-
+            String textToUse = text;            String ocrText = null;            boolean usedOcrText = false;
             if (invoiceDueDate == null && ocrProperties.isEnabled()) {
                 log.warn("[InvoiceUpload][OCR] Due date not found via PDF text. Retrying once with OCR...");
-                String ocrText = pdfOcrExtractor.extractText(document);
+                ocrText = pdfOcrExtractor.extractText(document);
                 if (ocrText != null && !ocrText.isBlank()) {
                     log.info("[InvoiceUpload][OCR] Extracted sample: {}",
                             (ocrText.length() > 500 ? ocrText.substring(0, 500) : ocrText));
@@ -244,6 +243,7 @@ public class InvoiceUploadService {
                         invoiceDueDate = ocrDueDate;
                         parserToUse = parserOcr;
                         textToUse = ocrText;
+                        usedOcrText = true;
                         log.info("[InvoiceUpload][OCR] Using parser={} dueDate={}",
                                 parserToUse.getClass().getSimpleName(), invoiceDueDate);
                     }
@@ -286,6 +286,45 @@ public class InvoiceUploadService {
             log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
                     parserToUse.getClass().getSimpleName(), invoiceDueDate, transactions.size());
 
+            if (!usedOcrText && ocrProperties.isEnabled() && shouldRetryWithOcrForQuality(transactions)) {
+                log.warn("[InvoiceUpload][OCR] Parsed transactions look low-quality. Retrying once with OCR...");
+                if (ocrText == null || ocrText.isBlank()) {
+                    ocrText = pdfOcrExtractor.extractText(document);
+                }
+                if (ocrText != null && !ocrText.isBlank()) {
+                    var parserOptOcr = invoiceParserFactory.getParser(ocrText);
+                    InvoiceParserStrategy parserOcr = parserOptOcr.orElse(parserToUse);
+
+                    List<com.ella.backend.services.invoices.parsers.TransactionData> parsedOcr = parserOcr.extractTransactions(ocrText);
+                    List<TransactionData> ocrTransactions = new ArrayList<>();
+
+                    for (com.ella.backend.services.invoices.parsers.TransactionData p : parsedOcr) {
+                        InstallmentInfo installment = (p.installmentNumber != null && p.installmentTotal != null)
+                                ? new InstallmentInfo(p.installmentNumber, p.installmentTotal)
+                                : null;
+
+                        TransactionData data = new TransactionData(
+                                p.description,
+                                p.amount,
+                                p.type,
+                                p.category != null ? p.category : "Outros",
+                                p.date,
+                                p.cardName,
+                                p.scope,
+                                installment
+                        );
+                        data.dueDate = invoiceDueDate;
+                        ocrTransactions.add(data);
+                    }
+
+                    if (isOcrResultBetter(transactions, ocrTransactions)) {
+                        log.info("[InvoiceUpload][OCR] OCR retry accepted: txCount {} -> {}", transactions.size(), ocrTransactions.size());
+                        return ocrTransactions;
+                    }
+                    log.info("[InvoiceUpload][OCR] OCR retry rejected: quality not improved (txCount {} -> {})", transactions.size(), ocrTransactions.size());
+                }
+            }
+
             return transactions;
         } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
             if (password != null && !password.isBlank()) {
@@ -321,11 +360,10 @@ public class InvoiceUploadService {
 
             LocalDate invoiceDueDate = parser.extractDueDate(text);
             InvoiceParserStrategy parserToUse = parser;
-            String textToUse = text;
-
+            String textToUse = text;            String ocrText = null;            boolean usedOcrText = false;
             if (invoiceDueDate == null && ocrProperties.isEnabled()) {
                 log.warn("[InvoiceUpload][OCR] Due date not found via PDF text. Retrying once with OCR...");
-                String ocrText = pdfOcrExtractor.extractText(document);
+                ocrText = pdfOcrExtractor.extractText(document);
                 if (ocrText != null && !ocrText.isBlank()) {
                     log.info("[InvoiceUpload][OCR] Extracted sample: {}",
                             (ocrText.length() > 500 ? ocrText.substring(0, 500) : ocrText));
@@ -337,6 +375,7 @@ public class InvoiceUploadService {
                         invoiceDueDate = ocrDueDate;
                         parserToUse = parserOcr;
                         textToUse = ocrText;
+                        usedOcrText = true;
                         log.info("[InvoiceUpload][OCR] Using parser={} dueDate={}",
                                 parserToUse.getClass().getSimpleName(), invoiceDueDate);
                     }
@@ -375,6 +414,45 @@ public class InvoiceUploadService {
             log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
                     parserToUse.getClass().getSimpleName(), invoiceDueDate, transactions.size());
 
+            if (!usedOcrText && ocrProperties.isEnabled() && shouldRetryWithOcrForQuality(transactions)) {
+                log.warn("[InvoiceUpload][OCR] Parsed transactions look low-quality. Retrying once with OCR...");
+                if (ocrText == null || ocrText.isBlank()) {
+                    ocrText = pdfOcrExtractor.extractText(document);
+                }
+                if (ocrText != null && !ocrText.isBlank()) {
+                    var parserOptOcr = invoiceParserFactory.getParser(ocrText);
+                    InvoiceParserStrategy parserOcr = parserOptOcr.orElse(parserToUse);
+
+                    List<com.ella.backend.services.invoices.parsers.TransactionData> parsedOcr = parserOcr.extractTransactions(ocrText);
+                    List<TransactionData> ocrTransactions = new ArrayList<>();
+
+                    for (com.ella.backend.services.invoices.parsers.TransactionData p : parsedOcr) {
+                        InstallmentInfo installment = (p.installmentNumber != null && p.installmentTotal != null)
+                                ? new InstallmentInfo(p.installmentNumber, p.installmentTotal)
+                                : null;
+
+                        TransactionData data = new TransactionData(
+                                p.description,
+                                p.amount,
+                                p.type,
+                                p.category != null ? p.category : "Outros",
+                                p.date,
+                                p.cardName,
+                                p.scope,
+                                installment
+                        );
+                        data.dueDate = invoiceDueDate;
+                        ocrTransactions.add(data);
+                    }
+
+                    if (isOcrResultBetter(transactions, ocrTransactions)) {
+                        log.info("[InvoiceUpload][OCR] OCR retry accepted: txCount {} -> {}", transactions.size(), ocrTransactions.size());
+                        return ocrTransactions;
+                    }
+                    log.info("[InvoiceUpload][OCR] OCR retry rejected: quality not improved (txCount {} -> {})", transactions.size(), ocrTransactions.size());
+                }
+            }
+
             return transactions;
         } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
             if (password != null && !password.isBlank()) {
@@ -383,6 +461,121 @@ public class InvoiceUploadService {
             throw new IllegalArgumentException("O arquivo PDF está protegido por senha. Por favor, forneça a senha.");
         }
     }
+
+    static boolean shouldRetryWithOcrForQuality(List<TransactionData> transactions) {
+        if (transactions == null || transactions.isEmpty()) return false;
+
+        int total = transactions.size();
+        int missingDate = 0;
+        int garbled = 0;
+
+        for (TransactionData tx : transactions) {
+            if (tx == null) continue;
+            if (tx.date == null) missingDate++;
+            if (isLikelyGarbledMerchant(tx.description)) garbled++;
+        }
+
+        boolean manyMissingDates = missingDate >= Math.max(2, (int) Math.ceil(total * 0.5));
+        boolean manyGarbledDescs = garbled >= Math.max(2, (int) Math.ceil(total * 0.4));
+        boolean trigger = manyMissingDates || manyGarbledDescs;
+
+        if (trigger) {
+            StringBuilder sample = new StringBuilder();
+            int shown = 0;
+            for (TransactionData tx : transactions) {
+                if (tx == null) continue;
+                if (!isLikelyGarbledMerchant(tx.description) && tx.date != null) continue;
+                if (shown >= 3) break;
+
+                String desc = tx.description == null ? "" : tx.description;
+                if (desc.length() > 60) desc = desc.substring(0, 60) + "...";
+                sample.append('[').append(tx.date).append(']').append(desc).append(' ');
+                shown++;
+            }
+            log.info("[InvoiceUpload][OCR] Quality trigger: total={} garbled={} missingDate={} samples={}", total, garbled, missingDate, sample.toString().trim());
+        }
+
+        return trigger;
+    }
+
+    static boolean isOcrResultBetter(List<TransactionData> original, List<TransactionData> ocr) {
+        return qualityScore(ocr) > qualityScore(original);
+    }
+
+    static int qualityScore(List<TransactionData> transactions) {
+        if (transactions == null || transactions.isEmpty()) return 0;
+
+        int score = 0;
+        for (TransactionData tx : transactions) {
+            if (tx == null) continue;
+            if (tx.date != null) score += 2;
+            if (tx.description != null && !tx.description.isBlank()) score += 1;
+            if (isLikelyGarbledMerchant(tx.description)) score -= 2;
+        }
+        return score;
+    }
+
+    static boolean isLikelyGarbledMerchant(String description) {
+        if (description == null) return false;
+        String d = description.trim();
+        if (d.isEmpty()) return false;
+
+        String upper = d.toUpperCase();
+
+        int letters = 0;
+        int digits = 0;
+        int vowels = 0;
+        int longAlnumTokens = 0;
+        int mixedLetterDigitTokens = 0;
+
+        for (String token : d.split("\\s+")) {
+            String t = token.replaceAll("[^A-Za-z0-9]", "");
+            if (t.length() < 8) continue;
+
+            boolean hasLetter = t.matches(".*[A-Za-z].*");
+            boolean hasDigit = t.matches(".*\\d.*");
+            if (t.length() >= 10 && t.matches("[A-Za-z0-9]+")) {
+                longAlnumTokens++;
+            }
+            if (t.length() >= 10 && hasLetter && hasDigit && countDigits(t) >= 2) {
+                mixedLetterDigitTokens++;
+            }
+        }
+
+        for (int i = 0; i < upper.length(); i++) {
+            char c = upper.charAt(i);
+            if (c >= 'A' && c <= 'Z') {
+                letters++;
+                if (c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U') vowels++;
+            } else if (c >= '0' && c <= '9') {
+                digits++;
+            }
+        }
+
+        if (mixedLetterDigitTokens >= 1) {
+            return true;
+        }
+
+        if (longAlnumTokens >= 1 && letters >= 8 && digits >= 2 && vowels <= 1) {
+            return true;
+        }
+        if (letters >= 12 && vowels == 0 && longAlnumTokens >= 2) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int countDigits(String value) {
+        if (value == null || value.isEmpty()) return 0;
+        int count = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c >= '0' && c <= '9') count++;
+        }
+        return count;
+    }
+
 
     private String normalizeSectionLine(String line) {
         if (line == null) return "";
@@ -1070,6 +1263,9 @@ public class InvoiceUploadService {
 
     private record CardMetadata(String name, String brand, String lastFourDigits) {}
 }
+
+
+
 
 
 

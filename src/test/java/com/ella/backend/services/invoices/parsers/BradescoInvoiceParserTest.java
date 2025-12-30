@@ -84,4 +84,35 @@ class BradescoInvoiceParserTest {
         assertEquals("Reembolso", t5.category);
         assertEquals(LocalDate.of(2025, 12, 5), t5.date);
     }
+
+    @Test
+    void parsesTransactionsEvenWhenLaunchesMarkerIsMissingAndResumoAppearsEarly() {
+        // Real-world OCR/PDFBox scenario: marker "LANÇAMENTOS" may be missing/garbled, while "Resumo" exists in header.
+        String text = String.join("\n",
+                "BRADESCO",
+                "Resumo da Fatura",
+                "Total da fatura: R$ 13.646,35",
+                "Vencimento 25/11/2025",
+                "",
+                "Data  Histórico de Lançamentos                     Valor",
+                "27/10 CTCE FORTALEZA CE P/1                    19.813,33",
+                "12/11 CUSTO TRANS. EXTERIOR-IOF                   6,71",
+                "01/12 BRADESCO AUTO                             50,00",
+                "05/12 PAYGOAL                                  -10,00",
+                "",
+                "Algum rodapé"
+        );
+
+        BradescoInvoiceParser parser = new BradescoInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+        assertEquals(LocalDate.of(2025, 11, 25), parser.extractDueDate(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertEquals(4, txs.size());
+        assertEquals("CTCE FORTALEZA CE P/1", txs.get(0).description);
+        assertEquals("CUSTO TRANS. EXTERIOR-IOF", txs.get(1).description);
+        assertEquals("BRADESCO AUTO", txs.get(2).description);
+        assertEquals("PAYGOAL", txs.get(3).description);
+        assertEquals(TransactionType.INCOME, txs.get(3).type);
+    }
 }
