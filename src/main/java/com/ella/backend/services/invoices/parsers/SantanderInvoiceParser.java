@@ -54,8 +54,9 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
         String n = normalizeForSearch(text);
         boolean hasSantander = n.contains("santander");
         boolean hasDue = DUE_DATE_PATTERN.matcher(normalizedText).find() || HEADER_TOTAL_AND_DUE_PATTERN.matcher(normalizedText).find();
-        boolean hasHolders = HOLDER_BLOCK_PATTERN.matcher(text).find();
-        return hasDue && (hasSantander || hasHolders || n.contains("total a pagar"));
+        boolean hasTotalToPay = n.contains("total a pagar");
+        // Avoid false-positives: holder-like blocks can appear in other banks.
+        return hasDue && (hasSantander || hasTotalToPay);
     }
 
     @Override

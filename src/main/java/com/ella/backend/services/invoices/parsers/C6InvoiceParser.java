@@ -15,9 +15,12 @@ import com.ella.backend.enums.TransactionType;
 
 public class C6InvoiceParser implements InvoiceParserStrategy {
 
-    private static final Pattern DUE_DATE_PATTERN = Pattern.compile("(?is)\\bvencimento\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}/\\d{4})");
+    private static final Pattern DUE_DATE_PATTERN = Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}/\\d{4})");
+
+    // Ex.: "C6 Carbon Virtual Final 5867 - LENON MERLO"
+    // Ex.: "C6 Carbon Final: 5867" (sem titular)
     private static final Pattern CARD_HEADER_PATTERN = Pattern.compile(
-            "(?i)^c6\\s+(.+?)\\s+final\\s+(\\d{4})\\s*-\\s*(.+)$");
+            "(?i)^c6\\s+(.+?)\\s+final\\s*[:]?\\s*(\\d{4})(?:\\s*-\\s*(.+))?$");
 
     // Ex.: 27 out AIRBNB * HMF99EFWK9 - Parcela 2/3 369,48
     // Ex.: 14 nov BAR PIMENTA CARIOCA 92,40
@@ -30,7 +33,17 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
     public boolean isApplicable(String text) {
         if (text == null || text.isBlank()) return false;
         String n = normalizeForSearch(text);
-        if (n.contains("c6 bank")) return true;
+        if (n.contains("c6 bank") || n.contains("c6bank")) return true;
+
+        // Marcadores adicionais comuns no PDF.
+        if (n.contains("c6") && (n.contains("cartao") || n.contains("cartão")) && n.contains("venc")) {
+            return true;
+        }
+
+        // Alguns layouts do C6 vêm como "fatura" e podem não conter explicitamente "cartão" no texto extraído.
+        if (n.contains("c6") && n.contains("fatura") && n.contains("venc")) {
+            return true;
+        }
 
         // Fallback: detecta pelo padrão de cabeçalho de cartão.
         Matcher m = CARD_HEADER_PATTERN.matcher(text);
@@ -43,9 +56,18 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
 
         String normalized = normalizeNumericDates(text);
 
+        Integer inferredYear = inferYearFromText(normalized);
+
         List<Pattern> patterns = List.of(
                 // dd/MM/yyyy
-                Pattern.compile("(?is)\\bvencimento\\b\\s*[:\\-]?\\s*(\\d{2})\\s*/\\s*(\\d{2})\\s*/\\s*(\\d{4})"),
+            Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b[^0-9]{0,40}(\\d{2})\\s*[\\./-]\\s*(\\d{2})\\s*[\\./-]\\s*(\\d{4})"),
+                // dd/MM (sem ano)
+            Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b[^0-9]{0,40}(\\d{2})\\s*[\\./-]\\s*(\\d{2})(?!\\s*[\\./-]\\s*\\d{4})"),
+                // Textual: "Vencimento: 20 DEZ 2025" / "Data de vencimento 20 DEZ"
+            Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b[^0-9]{0,60}(\\d{2})\\s+(?:de\\s+)?([A-Z]{3,9})\\s+(\\d{4})"),
+            Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b[^0-9]{0,60}(\\d{2})\\s+(?:de\\s+)?([A-Z]{3,9})(?!\\s+\\d{4})"),
+                // Ultra-flexível quando o PDF quebra dígitos: "Vencimento: 2 0 / 1 2 / 2 0 2 5"
+            Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b[^0-9]{0,60}([0-9][0-9\\s\\./-]{5,30})"),
                 // fallback compat (single group)
                 DUE_DATE_PATTERN
         );
@@ -54,17 +76,128 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
             Matcher m = p.matcher(normalized);
             if (!m.find()) continue;
 
-            String value;
-            if (m.groupCount() >= 3) {
-                value = m.group(1) + "/" + m.group(2) + "/" + m.group(3);
-            } else {
-                value = m.group(1);
-            }
-            LocalDate due = parseDueDate(value);
+            LocalDate due = extractDueFromMatcher(m, inferredYear);
             if (due != null) return due;
         }
 
         return null;
+    }
+
+    private LocalDate extractDueFromMatcher(Matcher m, Integer inferredYear) {
+        try {
+            if (m == null) return null;
+
+            // numeric (keyword, dd, MM, yyyy)
+            if (m.groupCount() >= 4 && isTwoDigits(m.group(2)) && isTwoDigits(m.group(3)) && isFourDigits(m.group(4))) {
+                Integer day = parseIntOrNull(m.group(2));
+                Integer month = parseIntOrNull(m.group(3));
+                Integer year = parseIntOrNull(m.group(4));
+                return safeDate(year, month, day);
+            }
+
+            // numeric without year (keyword, dd, MM)
+            if (m.groupCount() >= 3 && isTwoDigits(m.group(2)) && isTwoDigits(m.group(3)) && !isFourDigitsSafe(m.group(4))) {
+                Integer day = parseIntOrNull(m.group(2));
+                Integer month = parseIntOrNull(m.group(3));
+                Integer year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
+                LocalDate d = safeDate(year, month, day);
+                if (d == null) return null;
+
+                // Se o documento não tem ano inferível, ajusta para o próximo ano quando fizer sentido.
+                if (inferredYear == null) {
+                    LocalDate now = LocalDate.now();
+                    if (d.isBefore(now.minusDays(30))) {
+                        d = safeDate(year + 1, month, day);
+                    }
+                }
+                return d;
+            }
+
+            // textual with year (keyword, dd, MON, yyyy)
+            if (m.groupCount() >= 4 && isTwoDigits(m.group(2)) && m.group(3) != null && isFourDigits(m.group(4))) {
+                Integer day = parseIntOrNull(m.group(2));
+                Integer month = monthAbbrevToNumber(m.group(3));
+                Integer year = parseIntOrNull(m.group(4));
+                return safeDate(year, month, day);
+            }
+
+            // textual without year (keyword, dd, MON)
+            if (m.groupCount() >= 3 && isTwoDigits(m.group(2)) && m.group(3) != null && !isFourDigitsSafe(m.group(4))) {
+                Integer day = parseIntOrNull(m.group(2));
+                Integer month = monthAbbrevToNumber(m.group(3));
+                Integer year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
+                return safeDate(year, month, day);
+            }
+
+            // digits chunk (keyword, digits)
+            if (m.groupCount() >= 2) {
+                String digits = safeTrim(m.group(2)).replaceAll("\\D", "");
+                if (digits.length() >= 8) {
+                    Integer day = parseIntOrNull(digits.substring(0, 2));
+                    Integer month = parseIntOrNull(digits.substring(2, 4));
+                    Integer year = parseIntOrNull(digits.substring(4, 8));
+                    return safeDate(year, month, day);
+                }
+                if (digits.length() >= 4) {
+                    Integer day = parseIntOrNull(digits.substring(0, 2));
+                    Integer month = parseIntOrNull(digits.substring(2, 4));
+                    Integer year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
+                    return safeDate(year, month, day);
+                }
+            }
+
+            // fallback: single group dd/MM/yyyy
+            if (m.groupCount() >= 2 && m.group(2) != null && m.group(2).matches("\\d{2}/\\d{2}/\\d{4}")) {
+                return parseDueDate(m.group(2));
+            }
+            if (m.groupCount() >= 1 && m.group(1) != null && m.group(1).matches("\\d{2}/\\d{2}/\\d{4}")) {
+                return parseDueDate(m.group(1));
+            }
+
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean isTwoDigits(String s) {
+        return s != null && s.matches("\\d{2}");
+    }
+
+    private boolean isFourDigits(String s) {
+        return s != null && s.matches("\\d{4}");
+    }
+
+    private boolean isFourDigitsSafe(String s) {
+        return s != null && s.matches("\\d{4}");
+    }
+
+    private Integer inferYearFromText(String text) {
+        try {
+            if (text == null || text.isBlank()) return null;
+            Matcher m = Pattern.compile("(?s)\\b\\d{2}/\\d{2}/(\\d{4})\\b").matcher(text);
+            if (m.find()) {
+                return parseIntOrNull(m.group(1));
+            }
+            return null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Integer monthAbbrevToNumber(String mon) {
+        if (mon == null) return null;
+        int m = getMonthFromAbbreviation(mon);
+        return m < 1 ? null : m;
+    }
+
+    private LocalDate safeDate(Integer year, Integer month, Integer day) {
+        try {
+            if (year == null || month == null || day == null) return null;
+            return LocalDate.of(year, month, day);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
@@ -186,6 +319,19 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
             case "out", "oct" -> 10;
             case "nov" -> 11;
             case "dez", "dec" -> 12;
+            // mês por extenso (PT-BR)
+            case "janeiro" -> 1;
+            case "fevereiro" -> 2;
+            case "marco", "março" -> 3;
+            case "abril" -> 4;
+            case "maio" -> 5;
+            case "junho" -> 6;
+            case "julho" -> 7;
+            case "agosto" -> 8;
+            case "setembro" -> 9;
+            case "outubro" -> 10;
+            case "novembro" -> 11;
+            case "dezembro" -> 12;
             default -> -1;
         };
     }

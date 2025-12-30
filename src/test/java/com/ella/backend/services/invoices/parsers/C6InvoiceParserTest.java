@@ -82,4 +82,33 @@ class C6InvoiceParserTest {
         C6InvoiceParser parser = new C6InvoiceParser();
         assertFalse(parser.isApplicable("BANCO X\nVencimento: 20/12/2025"));
     }
+
+    @Test
+    void parsesDueDateWhenYearIsMissingUsingInferredYear() {
+        String text = String.join("\n",
+                "C6 BANK",
+                "Emissão: 01/12/2025",
+                "Vencimento: 20/12",
+                "Transações do cartão principal",
+                "C6 Carbon Virtual Final 5867 - LENON MERLO",
+                "14 nov   BAR PIMENTA CARIOCA   92,40"
+        );
+
+        C6InvoiceParser parser = new C6InvoiceParser();
+        assertTrue(parser.isApplicable(text));
+        assertEquals(LocalDate.of(2025, 12, 20), parser.extractDueDate(text));
+    }
+
+    @Test
+    void parsesDueDateWhenMonthIsTextual() {
+        String text = String.join("\n",
+                "C6 BANK",
+                "Vencimento: 20 DEZ 2025",
+                "C6 Carbon Virtual Final 5867 - LENON MERLO"
+        );
+
+        C6InvoiceParser parser = new C6InvoiceParser();
+        assertTrue(parser.isApplicable(text));
+        assertEquals(LocalDate.of(2025, 12, 20), parser.extractDueDate(text));
+    }
 }

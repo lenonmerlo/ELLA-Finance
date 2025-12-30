@@ -16,10 +16,11 @@ public class InvoiceParserFactory {
                 new NubankInvoiceParser(),
                 new BancoDoBrasilInvoiceParser(),
             new SicrediInvoiceParser(),
-            new SantanderInvoiceParser(),
                 new BradescoInvoiceParser(),
                 new ItauInvoiceParser(),
-                new C6InvoiceParser()
+                new C6InvoiceParser(),
+            // Santander has broader applicability signals; keep it last to avoid stealing other banks.
+            new SantanderInvoiceParser()
         );
     }
 
@@ -34,5 +35,9 @@ public class InvoiceParserFactory {
             }
         }
         return Optional.empty();
+    }
+
+    public List<InvoiceParserStrategy> getParsers() {
+        return parsers;
     }
 }
