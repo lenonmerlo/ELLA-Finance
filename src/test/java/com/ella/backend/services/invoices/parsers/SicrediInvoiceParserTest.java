@@ -86,4 +86,53 @@ class SicrediInvoiceParserTest {
         assertEquals(LocalDate.of(2025, 11, 21), t5.date);
         assertTrue(t5.cardName.toLowerCase().contains("virtual"));
     }
+
+    @Test
+    void parsesNonTabularLayoutWithDueDateDaySlashMonthAbbrev() {
+        // Layout observado em PDFs reais: pode não conter o cabeçalho tabular "Data e hora ... Valor em reais".
+        // Ainda assim, as linhas de transação começam com dd/mon.
+        String text = String.join("\n",
+                "Mariana O Castro",
+                "Mastercard Black final 2127",
+                "Total fatura de dezembro R$ 12.068,55",
+                "Fechamento da próxima fatura 11/12/2025",
+                "Vencimento 25/nov",
+            "Consulte as taxas no site sicredi.com.br",
+                "",
+                "11/nov Uber Trip 56,95",
+                "12/nov Assai Atacadista Lj27 786,28",
+                "15/nov Pagamento fatura -R$ 2.824,20"
+        );
+
+        SicrediInvoiceParser parser = new SicrediInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        LocalDate dueDate = parser.extractDueDate(text);
+        assertEquals(LocalDate.of(2025, 11, 25), dueDate);
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+        assertEquals(3, txs.size());
+
+        TransactionData t1 = txs.get(0);
+        assertEquals("Uber Trip", t1.description);
+        assertEquals(TransactionType.EXPENSE, t1.type);
+        assertEquals(0, t1.amount.compareTo(new BigDecimal("56.95")));
+        assertEquals(LocalDate.of(2025, 11, 11), t1.date);
+        assertNotNull(t1.cardName);
+        assertTrue(t1.cardName.toLowerCase().contains("final 2127"));
+
+        TransactionData t2 = txs.get(1);
+        assertEquals("Assai Atacadista Lj27", t2.description);
+        assertEquals(TransactionType.EXPENSE, t2.type);
+        assertEquals(0, t2.amount.compareTo(new BigDecimal("786.28")));
+        assertEquals(LocalDate.of(2025, 11, 12), t2.date);
+
+        TransactionData t3 = txs.get(2);
+        assertEquals("Pagamento fatura", t3.description);
+        assertEquals(TransactionType.INCOME, t3.type);
+        assertEquals("Pagamento", t3.category);
+        assertEquals(0, t3.amount.compareTo(new BigDecimal("2824.20")));
+        assertEquals(LocalDate.of(2025, 11, 15), t3.date);
+    }
 }

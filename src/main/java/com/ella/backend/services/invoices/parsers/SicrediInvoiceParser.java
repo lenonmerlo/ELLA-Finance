@@ -26,6 +26,13 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
     private static final Pattern DATE_TIME_PATTERN = Pattern.compile("(?i)^(\\d{2})/([a-z]{3})(?:\\s+\\d{2}:\\d{2})?.*$");
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("^(\\d{2})/(\\d{2})$");
 
+        private static final Pattern DUE_DATE_DD_SLASH_MON_PATTERN = Pattern.compile(
+            "(?is)\\bvencimento\\b\\s*[:\\-]?\\s*(\\d{2})\\s*/\\s*([a-z]{3})\\b");
+
+        private static final Pattern ANY_DDMMYYYY_PATTERN = Pattern.compile("(?s)\\b\\d{2}/\\d{2}/(\\d{4})\\b");
+
+        private static final Pattern CARD_FINAL_PATTERN = Pattern.compile("(?i)\\bfinal\\s+(\\d{4})\\b");
+
     private static final Map<String, Integer> MONTHS = buildMonths();
 
     @Override
@@ -33,7 +40,9 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
         if (text == null || text.isBlank()) return false;
         String n = normalizeForSearch(text);
         boolean hasSicrediMarker = n.contains("sicredi");
-        boolean hasDue = DUE_DATE_PATTERN.matcher(normalizeNumericDates(text)).find();
+        String normalizedText = normalizeNumericDates(text);
+        boolean hasDue = DUE_DATE_PATTERN.matcher(normalizedText).find()
+                || DUE_DATE_DD_SLASH_MON_PATTERN.matcher(normalizedText).find();
         boolean hasTableMarkers = n.contains("data e hora") && (n.contains("valor em reais") || n.contains("valor em reais"));
         return (hasSicrediMarker && hasDue) || (hasDue && hasTableMarkers);
     }
@@ -44,9 +53,13 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
 
         String normalizedText = normalizeNumericDates(text);
 
+        Integer inferredYear = inferYearFromText(normalizedText);
+
         List<Pattern> patterns = List.of(
                 // dd/MM/yyyy
                 Pattern.compile("(?is)\\bvencimento\\b\\s*[:\\-]?\\s*(\\d{2})\\s*/\\s*(\\d{2})\\s*/\\s*(\\d{4})"),
+            // dd/mon (ex.: 25/nov)
+            DUE_DATE_DD_SLASH_MON_PATTERN,
                 // legacy single-group
                 DUE_DATE_PATTERN
         );
@@ -55,14 +68,22 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
             Matcher m = p.matcher(normalizedText);
             if (!m.find()) continue;
 
-            String value;
-            if (m.groupCount() >= 3) {
-                value = m.group(1) + "/" + m.group(2) + "/" + m.group(3);
-            } else {
-                value = m.group(1);
-            }
-
             try {
+                if (m.pattern() == DUE_DATE_DD_SLASH_MON_PATTERN) {
+                    Integer day = parseIntOrNull(m.group(1));
+                    String mon = safeTrim(m.group(2)).toLowerCase(Locale.ROOT);
+                    Integer month = MONTHS.get(mon);
+                    if (day == null || month == null) continue;
+                    int year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
+                    return LocalDate.of(year, month, day);
+                }
+
+                String value;
+                if (m.groupCount() >= 3) {
+                    value = m.group(1) + "/" + m.group(2) + "/" + m.group(3);
+                } else {
+                    value = m.group(1);
+                }
                 return LocalDate.parse(value.trim().replaceAll("\\s+", ""), DUE_DATE_FORMATTER);
             } catch (Exception ignored) {
             }
@@ -92,19 +113,29 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
                 continue;
             }
 
+            // Alguns layouts não usam "Cartão ..." mas trazem "final 1234" (ex.: "Mastercard Black final 2127").
+            if (currentCard == null && CARD_FINAL_PATTERN.matcher(line).find()) {
+                currentCard = line;
+            }
+
             if (nLine.contains("data e hora") && (nLine.contains("valor em reais") || nLine.contains("valor em reais"))) {
                 inTransactionSection = true;
                 continue;
             }
 
-            if (!inTransactionSection) continue;
-
-            if (!TX_LINE_START_PATTERN.matcher(line).find()) {
+            // Layout tabular
+            if (inTransactionSection) {
+                if (!TX_LINE_START_PATTERN.matcher(line).find()) continue;
+                TransactionData tx = parseTxLine(line, currentCard, dueDate);
+                if (tx != null) out.add(tx);
                 continue;
             }
 
-            TransactionData tx = parseTxLine(line, currentCard, dueDate);
-            if (tx != null) out.add(tx);
+            // Layout alternativo (sem cabeçalho): ainda tenta pegar linhas que começam com dd/mon.
+            if (TX_LINE_START_PATTERN.matcher(line).find()) {
+                TransactionData tx = parseLooseTxLine(line, currentCard, dueDate);
+                if (tx != null) out.add(tx);
+            }
         }
 
         return out;
@@ -138,6 +169,74 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
             } else {
                 category = MerchantCategoryMapper.categorize(description, type);
             }
+
+            TransactionData td = new TransactionData(
+                    description,
+                    amount.abs(),
+                    type,
+                    category,
+                    purchaseDate,
+                    currentCard,
+                    TransactionScope.PERSONAL
+            );
+            if (installment != null) {
+                td.installmentNumber = installment.number();
+                td.installmentTotal = installment.total();
+            }
+            return td;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private TransactionData parseLooseTxLine(String line, String currentCard, LocalDate dueDate) {
+        try {
+            String cleaned = line == null ? "" : line.replace('\u00A0', ' ').trim();
+            if (cleaned.isEmpty()) return null;
+
+            LocalDate purchaseDate = parsePurchaseDate(cleaned, dueDate);
+            if (purchaseDate == null) return null;
+
+            // Pega o último valor BRL na linha (ex.: "... -R$ 2.824,20" ou "... 56,95").
+            Pattern amountPattern = Pattern.compile("(-?R\\$\\s*)?(-?\\d{1,3}(?:\\.\\d{3})*,\\d{2})\\b");
+            Matcher amountMatcher = amountPattern.matcher(cleaned);
+            String amountToken = null;
+            while (amountMatcher.find()) {
+                amountToken = amountMatcher.group(2);
+                // inclui sinal/currency se existir
+                if (amountMatcher.group(1) != null && !amountMatcher.group(1).isBlank()) {
+                    amountToken = amountMatcher.group(1) + amountToken;
+                }
+            }
+            if (amountToken == null) return null;
+
+            BigDecimal amount = parseBrlAmount(amountToken);
+            if (amount == null) return null;
+
+            // Remove prefixo de data/hora
+            String descPart = cleaned.replaceFirst("(?i)^\\d{2}/[a-z]{3}(?:\\s+\\d{2}:\\d{2})?\\s+", "");
+            if (descPart.isBlank()) return null;
+
+            // Remove o último token de valor (incluindo "-R$" quando presente) do trecho restante.
+            Matcher amountInDesc = amountPattern.matcher(descPart);
+            int lastAmountStart = -1;
+            while (amountInDesc.find()) {
+                lastAmountStart = amountInDesc.start();
+            }
+
+            if (lastAmountStart > 0) {
+                descPart = descPart.substring(0, lastAmountStart);
+            }
+
+            String description = safeTrim(descPart).replaceAll("\\s+", " ");
+            if (description.isEmpty()) return null;
+
+            InstallmentInfo installment = findInstallment(cleaned.split("\\s+"));
+
+            TransactionType type = inferType(description, amount);
+            String category = (type == TransactionType.EXPENSE)
+                    ? categorizeForSicredi(description)
+                    : MerchantCategoryMapper.categorize(description, type);
 
             TransactionData td = new TransactionData(
                     description,
@@ -220,6 +319,19 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
         try {
             return LocalDate.of(year, month, day);
         } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Integer inferYearFromText(String text) {
+        try {
+            if (text == null || text.isBlank()) return null;
+            Matcher m = ANY_DDMMYYYY_PATTERN.matcher(text);
+            if (m.find()) {
+                return parseIntOrNull(m.group(1));
+            }
+            return null;
+        } catch (Exception ignored) {
             return null;
         }
     }
