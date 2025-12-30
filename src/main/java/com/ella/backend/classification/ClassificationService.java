@@ -19,6 +19,7 @@ import com.ella.backend.classification.entity.CategoryRule;
 import com.ella.backend.classification.repository.CategoryFeedbackRepository;
 import com.ella.backend.classification.repository.CategoryRuleRepository;
 import com.ella.backend.classification.rules.KeywordHeuristics;
+import com.ella.backend.classification.rules.MerchantMappings;
 import com.ella.backend.enums.TransactionType;
 
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,7 @@ public class ClassificationService {
 
     public ClassificationSuggestResponseDTO suggest(UUID userId, String description, BigDecimal amount, TransactionType explicitType) {
         String normalizedDescription = normalize(description);
+        String looseNormalized = MerchantMappings.looseNormalize(description);
         TransactionType type = resolveType(amount, explicitType);
 
         log.debug("Classification suggest userId={} normalized='{}'", userId, normalizedDescription);
@@ -64,7 +66,20 @@ public class ClassificationService {
             );
         }
 
-        // 3) Heurística por score (pesos)
+        // 3) Mapeamentos curados de comerciantes (alta precisão)
+        var merchantMatch = MerchantMappings.bestMatch(looseNormalized);
+        if (merchantMatch.isPresent()) {
+            var m = merchantMatch.get();
+            log.debug("Matched merchant mapping pattern='{}' -> category='{}' confidence={}", m.merchantPattern(), m.category(), m.confidence());
+            return new ClassificationSuggestResponseDTO(
+                m.category(),
+                type,
+                m.confidence(),
+                "merchant mapping: " + m.merchantPattern()
+            );
+        }
+
+        // 4) Heurística por score (pesos)
         Map<String, Double> scores = calculateCategoryScores(normalizedDescription);
         var best = scores.entrySet().stream()
                 .max(Map.Entry.comparingByValue());
@@ -84,7 +99,7 @@ public class ClassificationService {
             );
         }
 
-        // 4) Fallback
+        // 5) Fallback
         return new ClassificationSuggestResponseDTO(
                 "Outros",
                 type,

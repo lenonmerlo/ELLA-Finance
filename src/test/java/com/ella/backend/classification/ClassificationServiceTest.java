@@ -152,6 +152,48 @@ class ClassificationServiceTest {
     }
 
     @Test
+    void merchantMapping_isAppliedBeforeKeywordScoring() {
+        UUID userId = UUID.randomUUID();
+
+        when(ruleRepository.findByUserIdOrderByPriorityDescCreatedAtDesc(userId))
+                .thenReturn(List.of());
+        when(feedbackRepository.findSimilarFeedback(eq(userId), anyString()))
+                .thenReturn(List.of());
+
+        ClassificationSuggestResponseDTO res = service.suggest(
+                userId,
+                "Compra: EINSTEIN MORUMBI - atendimento",
+                new BigDecimal("120.00"),
+                TransactionType.EXPENSE
+        );
+
+        assertEquals("Saúde", res.category());
+        assertEquals(0.95, res.confidence(), 0.0001);
+        assertTrue(res.reason().startsWith("merchant mapping:"));
+    }
+
+    @Test
+    void merchantMapping_handlesAsterisksAndPunctuation() {
+        UUID userId = UUID.randomUUID();
+
+        when(ruleRepository.findByUserIdOrderByPriorityDescCreatedAtDesc(userId))
+                .thenReturn(List.of());
+        when(feedbackRepository.findSimilarFeedback(eq(userId), anyString()))
+                .thenReturn(List.of());
+
+        ClassificationSuggestResponseDTO res = service.suggest(
+                userId,
+                "MP*FAPASSAGENS 10/12",
+                new BigDecimal("850.00"),
+                null
+        );
+
+        assertEquals("Viagem", res.category());
+        assertEquals(0.95, res.confidence(), 0.0001);
+        assertTrue(res.reason().contains("MP*FAPASSAGENS"));
+    }
+
+    @Test
     void confidenceCalculation_isDeterministicForHighScore() {
         UUID userId = UUID.randomUUID();
 
