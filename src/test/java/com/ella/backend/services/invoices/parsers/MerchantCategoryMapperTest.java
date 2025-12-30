@@ -125,4 +125,37 @@ class MerchantCategoryMapperTest {
         assertEquals("Alimentação", MerchantCategoryMapper.categorize("DIM SUM PALACE (46TH S 131-27305592", TransactionType.EXPENSE));
         assertEquals("Lazer", MerchantCategoryMapper.categorize("2US TENNIS ASC FLUSHING", TransactionType.EXPENSE));
     }
+
+    @Test
+    void mapsSicrediRecurringMerchantsFromMarkdownList() {
+        assertEquals("Alimentação", MerchantCategoryMapper.categorize("Orbita Blue", TransactionType.EXPENSE));
+        assertEquals("Vestuário", MerchantCategoryMapper.categorize("NETSHOES", TransactionType.EXPENSE));
+        assertEquals("Assinaturas", MerchantCategoryMapper.categorize("Smiles Club Smiles", TransactionType.EXPENSE));
+
+        assertEquals("Saúde", MerchantCategoryMapper.categorize("Pronace", TransactionType.EXPENSE));
+        assertEquals("Saúde", MerchantCategoryMapper.categorize("Globo Formulas", TransactionType.EXPENSE));
+        assertEquals("Saúde", MerchantCategoryMapper.categorize("Regitec Assistencia", TransactionType.EXPENSE));
+        assertEquals("Saúde", MerchantCategoryMapper.categorize("Asa Unikka Pharma", TransactionType.EXPENSE));
+        assertEquals("Saúde", MerchantCategoryMapper.categorize("Control Vita", TransactionType.EXPENSE));
+        assertEquals("Saúde", MerchantCategoryMapper.categorize("Consultorio Dr X", TransactionType.EXPENSE));
+
+        assertEquals("Academia/Saúde", MerchantCategoryMapper.categorize("Paypal Keeprunning", TransactionType.EXPENSE));
+        assertEquals("Academia/Saúde", MerchantCategoryMapper.categorize("Fina Fit Indust", TransactionType.EXPENSE));
+
+        assertEquals("Transporte", MerchantCategoryMapper.categorize("Motolibre", TransactionType.EXPENSE));
+        assertEquals("Lazer", MerchantCategoryMapper.categorize("Libreproducoes", TransactionType.EXPENSE));
+
+        assertEquals("Vestuário", MerchantCategoryMapper.categorize("Liz Lingerie", TransactionType.EXPENSE));
+        assertEquals("Alimentação", MerchantCategoryMapper.categorize("Super Adega", TransactionType.EXPENSE));
+        assertEquals("Alimentação", MerchantCategoryMapper.categorize("Crepe Potiguar", TransactionType.EXPENSE));
+        assertEquals("Alimentação", MerchantCategoryMapper.categorize("Bec Italo", TransactionType.EXPENSE));
+        assertEquals("Lazer", MerchantCategoryMapper.categorize("One Park Ceara", TransactionType.EXPENSE));
+    }
+
+    @Test
+    void mapsSantanderMerchantsFromScreenshot() {
+        assertEquals("Seguro", MerchantCategoryMapper.categorize("TOKIO MARINE*AUTO", TransactionType.EXPENSE));
+        assertEquals("Saúde", MerchantCategoryMapper.categorize("P9ESPACOLASERES", TransactionType.EXPENSE));
+        assertEquals("Lazer", MerchantCategoryMapper.categorize("SEAWORLD/BUSCH GARDENS", TransactionType.EXPENSE));
+    }
 }

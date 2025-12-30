@@ -32,6 +32,87 @@ final class MerchantCategoryMapper {
             return "Taxas e Juros";
         }
 
+        // ===== Mapeamentos explícitos (merchants recorrentes Sicredi) =====
+        // Importante: estes são mais específicos e entram antes das heurísticas genéricas.
+        if (containsAny(n, nCompact,
+                "ORBITA BLUE",
+                "CREPE POTIGUAR",
+                "MERCADINHO SAO LUIZ",
+                "CIODATERRA",
+                "SUPER ADEGA",
+                "CASABERG",
+                "CASA BERGAN")) {
+            return "Alimentação";
+        }
+
+        if (containsAny(n, nCompact,
+                "NETSHOES",
+                "LIZ LINGERIE",
+                "LIZLINGERIE",
+                "MARY JOHN",
+                "L M FORTALEZA",
+                "LS NE RIOMAR FORT")) {
+            return "Vestuário";
+        }
+
+        if (containsAny(n, nCompact,
+                "SMILES CLUB",
+                "CLUB SMILES")) {
+            return "Assinaturas";
+        }
+
+        if (containsAny(n, nCompact,
+                "PRONACE",
+                "GLOBO FORMULAS",
+                "GLOBO FORMULAS",
+                "REGITEC ASSISTENCIA",
+                "ASSISTENCIA REGITEC",
+                "UNIKKA PHARMA",
+                "ASA UNIKKA PHARMA",
+                "CONTROL VITA",
+                "CONSULTORIO")) {
+            return "Saúde";
+        }
+
+        if (containsAny(n, nCompact,
+                "FINA FIT",
+                "FINAFIT",
+                "KEEP RUNNING",
+                "KEEPRUNNING")) {
+            return "Academia/Saúde";
+        }
+
+        if (containsAny(n, nCompact,
+                "MOTOLIBRE",
+                "MOTO LIBRE")) {
+            return "Transporte";
+        }
+
+        if (containsAny(n, nCompact,
+                "LIBREPRODUCOES",
+                "LIBRE PRODUCOES",
+                "CLUBE W PREPAGO",
+                "CLUBEWPREPAGO",
+                "ONE PARK CEARA")) {
+            return "Lazer";
+        }
+
+        // ===== Mapeamentos explícitos (merchants observados no Santander) =====
+        if (containsAny(n, nCompact, "TOKIO MARINE", "TOKIO MARINE AUTO")) {
+            return "Seguro";
+        }
+        if (containsAny(n, nCompact, "P9ESPACOLASERES", "ESPACO LASER", "ESPACOLASER")) {
+            return "Saúde";
+        }
+        if (containsAny(n, nCompact, "SEAWORLD", "BUSCH GARDENS")) {
+            return "Lazer";
+        }
+
+        // "BEC" é curto e pode dar falso-positivo; mantém match mais específico.
+        if (containsAny(n, nCompact, "BEC ITALO", "BEC11")) {
+            return "Alimentação";
+        }
+
         // ===== Assinaturas / Streaming / Software =====
         if (containsAny(n, nCompact,
                 "NETFLIX",
