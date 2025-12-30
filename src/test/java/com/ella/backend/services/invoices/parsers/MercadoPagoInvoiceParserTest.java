@@ -55,4 +55,33 @@ class MercadoPagoInvoiceParserTest {
         assertEquals(TransactionType.EXPENSE, t3.type);
         assertEquals(0, t3.amount.compareTo(new BigDecimal("120.90")));
     }
+
+    @Test
+    void parsesTransactionLinesWithFullYearInDate() {
+        String text = String.join("\n",
+                "Mercado Pago",
+                "Total a pagar",
+                "R$ 200,00",
+                "Vencimento: 23/12/2025",
+                "",
+                "Lançamentos",
+                "17/12/2025 UBER TRIP 18,40",
+                "18/12/2025 PAGAMENTO DA FATURA -100,00",
+                "19/12/2025 IFD*IFD*COMERCIO DE 120,90"
+        );
+
+        MercadoPagoInvoiceParser parser = new MercadoPagoInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        LocalDate due = parser.extractDueDate(text);
+        assertEquals(LocalDate.of(2025, 12, 23), due);
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+        assertEquals(3, txs.size());
+
+        assertEquals(LocalDate.of(2025, 12, 17), txs.get(0).date);
+        assertEquals(LocalDate.of(2025, 12, 18), txs.get(1).date);
+        assertEquals(LocalDate.of(2025, 12, 19), txs.get(2).date);
+    }
 }

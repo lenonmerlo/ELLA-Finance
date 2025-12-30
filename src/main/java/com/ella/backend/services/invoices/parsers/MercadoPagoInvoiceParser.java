@@ -52,12 +52,13 @@ public class MercadoPagoInvoiceParser implements InvoiceParserStrategy {
         Pattern cardHeader = Pattern.compile("(?i)cart[aã]o\\s+([a-z]+)\\s*\\[.*?(\\d{4})\\s*\\]");
 
         // Linhas típicas (PDFBox costuma remover os pipes)
+        // Alguns layouts trazem ano na coluna de data (dd/MM/yyyy).
         Pattern installmentLine = Pattern.compile(
-            "(?i)^(\\d{2}/\\d{2})\\s+(.+?)\\s+parcela\\s+(\\d+)\\s+de\\s+(\\d+)\\s+(?:R\\$\\s*)?([\\d\\.]+,\\d{2})\\s*$");
+            "(?i)^(\\d{2}/\\d{2}(?:/\\d{4})?)\\s+(.+?)\\s+parcela\\s+(\\d+)\\s+de\\s+(\\d+)\\s+(?:R\\$\\s*)?([\\d\\.]+,\\d{2})\\s*$");
         Pattern basicLine = Pattern.compile(
-            "(?i)^(\\d{2}/\\d{2})\\s+(.+?)\\s+(?:R\\$\\s*)?([\\-]?[\\d\\.]+,\\d{2})\\s*$");
+            "(?i)^(\\d{2}/\\d{2}(?:/\\d{4})?)\\s+(.+?)\\s+(?:R\\$\\s*)?([\\-]?[\\d\\.]+,\\d{2})\\s*$");
 
-        Pattern intlStart = Pattern.compile("(?i)^(\\d{2}/\\d{2})\\s+compra\\s+internacional\\s+em\\s+(.+?)\\s*$");
+        Pattern intlStart = Pattern.compile("(?i)^(\\d{2}/\\d{2}(?:/\\d{4})?)\\s+compra\\s+internacional\\s+em\\s+(.+?)\\s*$");
         Pattern brlAmountLine = Pattern.compile("(?i).*R\\$\\s*([\\-]?[\\d\\.]+,\\d{2}).*");
 
         String currentCardName = null;
@@ -199,11 +200,24 @@ public class MercadoPagoInvoiceParser implements InvoiceParserStrategy {
         return TransactionType.EXPENSE;
     }
 
-    private LocalDate parsePurchaseDate(String ddmm, LocalDate dueDate) {
-        if (ddmm == null) return null;
+    private LocalDate parsePurchaseDate(String dateValue, LocalDate dueDate) {
+        if (dateValue == null) return null;
         try {
-            int day = Integer.parseInt(ddmm.substring(0, 2));
-            int month = Integer.parseInt(ddmm.substring(3, 5));
+            String v = dateValue.trim();
+            if (v.isEmpty()) return null;
+
+            // dd/MM/yyyy
+            if (v.matches("^\\d{2}/\\d{2}/\\d{4}$")) {
+                return LocalDate.parse(v, DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+            }
+
+            // dd/MM
+            if (!v.matches("^\\d{2}/\\d{2}$")) {
+                return null;
+            }
+
+            int day = Integer.parseInt(v.substring(0, 2));
+            int month = Integer.parseInt(v.substring(3, 5));
             int year = (dueDate != null ? dueDate.getYear() : LocalDate.now().getYear());
 
             // Se for uma fatura de janeiro e a compra for em dezembro, assume ano anterior.
