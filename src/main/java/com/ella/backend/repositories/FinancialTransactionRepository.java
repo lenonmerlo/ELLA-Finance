@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
+import com.ella.backend.enums.CriticalReason;
 import com.ella.backend.enums.TransactionType;
 
 public interface FinancialTransactionRepository extends JpaRepository<FinancialTransaction, UUID> {
@@ -45,4 +46,17 @@ public interface FinancialTransactionRepository extends JpaRepository<FinancialT
     );
 
         List<FinancialTransaction> findByPersonAndIdIn(Person person, Collection<UUID> ids);
+
+    List<FinancialTransaction> findByPersonAndCriticalTrueAndCriticalReviewedFalseOrderByTransactionDateDesc(Person person);
+
+    List<FinancialTransaction> findByPersonAndCriticalTrueAndCriticalReviewedFalseAndCriticalReasonOrderByTransactionDateDesc(
+            Person person,
+            CriticalReason criticalReason
+    );
+
+    long countByPersonAndCriticalTrue(Person person);
+
+    long countByPersonAndCriticalTrueAndCriticalReviewedFalse(Person person);
+
+    long countByPersonAndCriticalTrueAndCriticalReason(Person person, CriticalReason criticalReason);
 }

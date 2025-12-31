@@ -25,8 +25,9 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         private static final Pattern HOLDER_PATTERN = Pattern.compile(
             "(?im)^\\s*titular\\s*[:\\-]?\\s*(.+?)\\s*$");
 
-        private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
-            "(?m)^(\\d{2}/\\d{2})(?:/\\d{2,4})?\\s+(.+?)\\s+(-?[\\d.]+,\\d{2})\\s*$");
+    private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
+            "(?m)^(\\d{2}/\\d{2})(?:/\\d{2,4})?\\s+(.+?)\\s+(-?[\\d.,]+)\\s*$");
+
 
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("(?i)\\bP/(\\d+)(?:\\s|$)");
 
@@ -90,6 +91,18 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
             if (ddmm.isEmpty() || desc.isEmpty() || valueRaw.isEmpty()) continue;
 
+            // NOVO: Ignorar linhas que são subtotais (Total para ...)
+            if (desc.toUpperCase().startsWith("TOTAL PARA")) {
+                continue;
+            }
+
+            // NOVO: Ignorar linhas que são pagamentos (débito em conta)
+            String descUpper = desc.toUpperCase();
+            if (descUpper.contains("PAGTO") || descUpper.contains("PAGAMENTO") ||
+                    descUpper.contains("DEB EM C/C") || descUpper.contains("DÉBITO EM CONTA")) {
+                continue;
+            }
+
             BigDecimal amount = parseBrlAmount(valueRaw);
             if (amount == null) continue;
 
@@ -145,9 +158,19 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
             return text;
         }
 
+        // NOVO: Procurar por "LIMITES" e parar antes dele
+        // Isso evita que o limite utilizado seja importado como transação
+        int limitesIndex = firstIndexOfFrom(u, start, "LIMITES");
+
         int end = firstIndexOfFrom(u, start,
             "RESUMO DA FATURA",
             "RESUMO");
+
+        // Se encontramos "LIMITES", usar como marcador de fim (tem prioridade)
+        // Isso garante que a seção de LIMITES é ignorada completamente
+        if (limitesIndex > start && limitesIndex > 0) {
+            end = limitesIndex;
+        }
 
         if (end < 0 || end <= start) end = text.length();
         return text.substring(start, end);
@@ -204,6 +227,16 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
     private String categorize(String description, TransactionType type) {
         String n = normalizeForSearch(description);
 
+        // NOVO: Anuidade é uma taxa, não reembolso
+        if (n.contains("anuidade")) {
+            return "Taxas e Tarifas";
+        }
+
+        // NOVO: Compra de pontos é diverso
+        if (n.contains("compra de pontos")) {
+            return "Diversos";
+        }
+
         // Créditos/cashback do Bradesco (muitas vezes vem como lançamento de crédito)
         if (type == TransactionType.INCOME) {
             if (n.contains("paygoal") || n.contains("cashback") || n.contains("pontos") || n.contains("reembolso")
@@ -232,8 +265,18 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         }
 
         String n = normalizeForSearch(description);
+        // NOVO: Anuidade é SEMPRE EXPENSE, não INCOME
+        if (n.contains("anuidade")) {
+            return TransactionType.EXPENSE;
+        }
+
+        // NOVO: Compra de pontos é SEMPRE EXPENSE, não INCOME
+        if (n.contains("compra de pontos")) {
+            return TransactionType.EXPENSE;
+        }
+
         if (n.contains("reembolso") || n.contains("credito") || n.contains("devolucao")
-                || n.contains("anuidade") || n.contains("cashback") || n.contains("paygoal") || n.contains("pontos")) {
+                || n.contains("cashback") || n.contains("paygoal")) {
             return TransactionType.INCOME;
         }
 

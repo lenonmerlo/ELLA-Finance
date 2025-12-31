@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import com.ella.backend.enums.CriticalReason;
 import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
@@ -103,4 +104,19 @@ public class FinancialTransaction {
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    @Column(name = "is_critical", nullable = false)
+    @Builder.Default
+    private boolean critical = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "critical_reason")
+    private CriticalReason criticalReason;
+
+    @Column(name = "critical_reviewed", nullable = false)
+    @Builder.Default
+    private boolean criticalReviewed = false;
+
+    @Column(name = "critical_reviewed_at")
+    private LocalDateTime criticalReviewedAt;
 }

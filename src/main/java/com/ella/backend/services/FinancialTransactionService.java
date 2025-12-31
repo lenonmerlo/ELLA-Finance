@@ -1,25 +1,24 @@
 package com.ella.backend.services;
 
-import com.ella.backend.dto.FinancialTransactionRequestDTO;
-import com.ella.backend.dto.FinancialTransactionResponseDTO;
-import com.ella.backend.dto.TransactionBulkUpdateItem;
-import com.ella.backend.dto.TransactionBulkUpdateRequest;
-import com.ella.backend.enums.TransactionScope;
-import com.ella.backend.entities.FinancialTransaction;
-import com.ella.backend.entities.Person;
-import com.ella.backend.exceptions.ResourceNotFoundException;
-import com.ella.backend.mappers.FinancialTransactionMapper;
-import com.ella.backend.repositories.FinancialTransactionRepository;
-import com.ella.backend.repositories.PersonRepository;
-import com.ella.backend.repositories.InstallmentRepository;
-import com.ella.backend.audit.Auditable;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDate;
-import java.util.List;
-import java.util.UUID;
+import com.ella.backend.audit.Auditable;
+import com.ella.backend.dto.FinancialTransactionRequestDTO;
+import com.ella.backend.dto.FinancialTransactionResponseDTO;
+import com.ella.backend.dto.TransactionBulkUpdateRequest;
+import com.ella.backend.entities.FinancialTransaction;
+import com.ella.backend.entities.Person;
+import com.ella.backend.enums.TransactionScope;
+import com.ella.backend.exceptions.ResourceNotFoundException;
+import com.ella.backend.mappers.FinancialTransactionMapper;
+import com.ella.backend.repositories.FinancialTransactionRepository;
+import com.ella.backend.repositories.InstallmentRepository;
+import com.ella.backend.repositories.PersonRepository;
 
 @Service
 @Transactional
@@ -28,13 +27,16 @@ public class FinancialTransactionService {
     private final FinancialTransactionRepository transactionRepository;
     private final PersonRepository personRepository;
         private final InstallmentRepository installmentRepository;
+        private final CriticalTransactionDetectionService criticalDetectionService;
 
     public FinancialTransactionService(FinancialTransactionRepository transactionRepository,
                                                                            PersonRepository personRepository,
-                                                                           InstallmentRepository installmentRepository) {
+                                                                                                                                                   InstallmentRepository installmentRepository,
+                                                                                                                                                   CriticalTransactionDetectionService criticalDetectionService) {
         this.transactionRepository = transactionRepository;
         this.personRepository = personRepository;
                 this.installmentRepository = installmentRepository;
+                this.criticalDetectionService = criticalDetectionService;
     }
 
     @Auditable(action = "TRANSACTION_CREATED", entityType = "FinancialTransaction")
@@ -44,6 +46,7 @@ public class FinancialTransactionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
         FinancialTransaction entity = FinancialTransactionMapper.toEntity(dto, person);
+        criticalDetectionService.evaluateAndApply(entity);
         FinancialTransaction saved = transactionRepository.save(entity);
 
         return FinancialTransactionMapper.toResponseDTO(saved);
@@ -93,6 +96,7 @@ public class FinancialTransactionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
         FinancialTransactionMapper.updateEntity(entity, dto, person);
+        criticalDetectionService.evaluateAndApply(entity);
         FinancialTransaction updated = transactionRepository.save(entity);
 
         return FinancialTransactionMapper.toResponseDTO(updated);
