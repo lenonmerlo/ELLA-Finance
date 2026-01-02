@@ -31,6 +31,9 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("(?i)\\bP/(\\d+)(?:\\s|$)");
 
+    private static final Pattern TOTAL_FATURA_PATTERN = Pattern.compile(
+            "(?i)total\\s+(?:da\\s+)?fatura[:\\s]+R?\\$?\\s*([\\d.,]+)");
+
     private static final DateTimeFormatter DUE_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     @Override
@@ -126,9 +129,33 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
             applyInstallmentInfo(td, desc);
             out.add(td);
+
+        }
+
+        // NOVO: Verificar qualidade das transações extraídas
+        BigDecimal totalExtracted = out.stream()
+                .map(t -> t.amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal expectedTotal = extractExpectedTotal(text);
+        if (expectedTotal != null && totalExtracted.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal threshold = expectedTotal.multiply(BigDecimal.valueOf(0.95));
+            if (totalExtracted.compareTo(threshold) < 0) {
+                System.err.println("[Bradesco] ⚠️ Low quality detected: extracted=" + totalExtracted +
+                        " expected=" + expectedTotal + ". OCR will be attempted.");
+            }
         }
 
         return out;
+    }
+
+    private BigDecimal extractExpectedTotal(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher m = TOTAL_FATURA_PATTERN.matcher(text);
+        if (m.find()) {
+            return parseBrlAmount(m.group(1));
+        }
+        return null;
     }
 
     private String extractHolderName(String text) {
@@ -158,18 +185,21 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
             return text;
         }
 
-        // NOVO: Procurar por "LIMITES" e parar antes dele
-        // Isso evita que o limite utilizado seja importado como transação
+        // Procurar por "LIMITES" e parar antes dele (prioridade),
+        // para evitar que limites sejam importados como transação.
         int limitesIndex = firstIndexOfFrom(u, start, "LIMITES");
 
-        int end = firstIndexOfFrom(u, start,
-            "RESUMO DA FATURA",
-            "RESUMO");
-
-        // Se encontramos "LIMITES", usar como marcador de fim (tem prioridade)
-        // Isso garante que a seção de LIMITES é ignorada completamente
+        int end;
         if (limitesIndex > start && limitesIndex > 0) {
             end = limitesIndex;
+        } else {
+            // Evita cortar cedo demais por "RESUMO" logo após o header de lançamentos.
+            // Em alguns PDFs/extrações, "RESUMO" aparece perto do início e o recorte
+            // acabava eliminando transações no fim.
+            int minFrom = Math.min(u.length(), start + 400);
+            end = firstIndexOfFrom(u, minFrom,
+                    "RESUMO DA FATURA",
+                    "RESUMO");
         }
 
         if (end < 0 || end <= start) end = text.length();

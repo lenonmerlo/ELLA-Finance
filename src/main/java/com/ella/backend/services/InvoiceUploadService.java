@@ -286,7 +286,9 @@ public class InvoiceUploadService {
             log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
                     parserToUse.getClass().getSimpleName(), invoiceDueDate, transactions.size());
 
-            if (!usedOcrText && ocrProperties.isEnabled() && shouldRetryWithOcrForQuality(transactions)) {
+            if (!usedOcrText && ocrProperties.isEnabled() &&
+                    (shouldRetryWithOcrForQuality(transactions) ||
+                            shouldRetryDueToMissingTransactions(transactions, textToUse))) {
                 log.warn("[InvoiceUpload][OCR] Parsed transactions look low-quality. Retrying once with OCR...");
                 if (ocrText == null || ocrText.isBlank()) {
                     ocrText = pdfOcrExtractor.extractText(document);
@@ -414,11 +416,11 @@ public class InvoiceUploadService {
             log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
                     parserToUse.getClass().getSimpleName(), invoiceDueDate, transactions.size());
 
-            if (!usedOcrText && ocrProperties.isEnabled() && shouldRetryWithOcrForQuality(transactions)) {
+            if (!usedOcrText && ocrProperties.isEnabled() &&
+                    (shouldRetryWithOcrForQuality(transactions) ||
+                            shouldRetryDueToMissingTransactions(transactions, textToUse))) {
                 log.warn("[InvoiceUpload][OCR] Parsed transactions look low-quality. Retrying once with OCR...");
-                if (ocrText == null || ocrText.isBlank()) {
-                    ocrText = pdfOcrExtractor.extractText(document);
-                }
+                ocrText = pdfOcrExtractor.extractText(document);
                 if (ocrText != null && !ocrText.isBlank()) {
                     var parserOptOcr = invoiceParserFactory.getParser(ocrText);
                     InvoiceParserStrategy parserOcr = parserOptOcr.orElse(parserToUse);
@@ -574,6 +576,42 @@ public class InvoiceUploadService {
             if (c >= '0' && c <= '9') count++;
         }
         return count;
+    }
+    private boolean shouldRetryDueToMissingTransactions(List<TransactionData> transactions, String text) {
+        // Extrair total esperado
+        Pattern pattern = Pattern.compile("(?i)total\\s+(?:da\\s+)?fatura[:\\s]+R?\\$?\\s*([\\d.,]+)");
+        Matcher m = pattern.matcher(text);
+        if (!m.find()) return false;
+
+        BigDecimal expectedTotal = parseBrlAmount(m.group(1));
+        if (expectedTotal == null) return false;
+
+        // Calcular total extraído
+        BigDecimal totalExtracted = transactions.stream()
+                .map(t -> t.amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Se extraído < 95% do esperado, tentar OCR
+        BigDecimal threshold = expectedTotal.multiply(BigDecimal.valueOf(0.95));
+        return totalExtracted.compareTo(threshold) < 0;
+    }
+
+    // ✨ NOVO: Converter valor BRL em BigDecimal
+    private BigDecimal parseBrlAmount(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim().replace("R$", "").replace(" ", "").trim();
+        if (s.contains(",")) {
+            s = s.replace(".", "").replace(",", ".");
+        } else {
+            if (!s.matches("-?\\d+\\.\\d{2}")) {
+                s = s.replace(".", "");
+            }
+        }
+        try {
+            return new BigDecimal(s);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
 
