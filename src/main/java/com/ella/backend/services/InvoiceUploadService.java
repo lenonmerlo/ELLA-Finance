@@ -92,6 +92,9 @@ public class InvoiceUploadService {
     @Value("${ella.invoice.debug.due-date-context-chars:${ella.invoice.debug.due.date.context.chars:140}}")
     private int dueDateContextChars;
 
+    @Value("${google.cloud.vision.enabled:false}")
+    private boolean googleVisionEnabled;
+
     @PostConstruct
     void logDebugFlags() {
         logDebugConfigSnapshot("@PostConstruct");
@@ -165,7 +168,8 @@ public class InvoiceUploadService {
                     throw new IllegalArgumentException(
                             "Não foi possível extrair transações desse PDF. " +
                                     "Ele pode estar escaneado (imagem), protegido, ou ter um layout ainda não suportado. " +
-                                    "Se o PDF for escaneado, habilite OCR (ella.ocr.enabled=true) e confirme o Tesseract/idioma instalados. " +
+                            "Se o PDF for escaneado, habilite OCR (ella.ocr.enabled=true) e confirme o Tesseract/idioma instalados " +
+                            "ou habilite Google Vision (google.cloud.vision.enabled=true) e configure GOOGLE_APPLICATION_CREDENTIALS. " +
                                     "Como alternativa, tente exportar/enviar um CSV, ou um PDF com texto selecionável."
                     );
                 }
@@ -663,11 +667,12 @@ public class InvoiceUploadService {
     }
 
     private boolean shouldAttemptOcr(String extractedText) {
-        if (!ocrProperties.isEnabled()) return false;
+        if (!ocrProperties.isEnabled() && !googleVisionEnabled) return false;
 
         String t = extractedText == null ? "" : extractedText;
         if (t.isBlank()) {
-            log.info("[OCR] Trigger: extracted text is blank");
+            log.info("[OCR] Trigger: extracted text is blank (tesseractEnabled={} googleVisionEnabled={})",
+                    ocrProperties.isEnabled(), googleVisionEnabled);
             return true;
         }
 
@@ -689,8 +694,8 @@ public class InvoiceUploadService {
         boolean tooGarbled = replacement > 10;
 
         if (tooLittleSignal || tooGarbled) {
-            log.info("[OCR] Trigger: enabled=true textLen={} nonWs={} alnum={} minTextLen={} replacement={}",
-                    t.length(), nonWhitespace, alnum, minLen, replacement);
+            log.info("[OCR] Trigger: enabled=true textLen={} nonWs={} alnum={} minTextLen={} replacement={} tesseractEnabled={} googleVisionEnabled={}",
+                t.length(), nonWhitespace, alnum, minLen, replacement, ocrProperties.isEnabled(), googleVisionEnabled);
             return true;
         }
 
@@ -699,14 +704,15 @@ public class InvoiceUploadService {
 
     private String runOcrOrThrow(PDDocument document) {
         try {
-            log.info("[OCR] Attempting OCR fallback (enabled=true)");
+            log.info("[OCR] Attempting OCR fallback (tesseractEnabled={} googleVisionEnabled={})",
+                    ocrProperties.isEnabled(), googleVisionEnabled);
             String ocrText = pdfOcrExtractor.extractText(document);
             return ocrText == null ? "" : ocrText;
         } catch (OcrException e) {
             throw new IllegalArgumentException(
                     "Falha ao aplicar OCR neste PDF. " +
-                            "Verifique se o Tesseract está instalado e se a configuração está correta " +
-                            "(ella.ocr.enabled, ella.ocr.language, ella.ocr.tessdata-path).",
+                            "Verifique Google Vision (google.cloud.vision.enabled e GOOGLE_APPLICATION_CREDENTIALS) " +
+                            "e/ou Tesseract (ella.ocr.enabled, ella.ocr.language, ella.ocr.tessdata-path).",
                     e
             );
         }

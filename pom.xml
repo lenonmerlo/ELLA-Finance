@@ -157,7 +157,18 @@
 				</exclusion>
 			</exclusions>
 		</dependency>
+
+		<!-- ==== OCR Google Vision -->
+		<dependency>
+			<groupId>com.google.cloud</groupId>
+			<artifactId>google-cloud-vision</artifactId>
+			<version>3.37.0</version>
+		</dependency>
+
 	</dependencies>
+
+
+
 
 	<build>
 		<plugins>
