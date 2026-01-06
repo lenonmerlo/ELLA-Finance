@@ -19,6 +19,7 @@ public class TransactionData {
      * Nome do titular do cartão (quando o PDF fornece), separado do nome do banco/cartão.
      */
     public String cardholderName;
+    public String lastFourDigits;
     public Integer installmentNumber;
     public Integer installmentTotal;
 

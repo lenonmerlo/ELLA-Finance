@@ -25,6 +25,14 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         private static final Pattern HOLDER_PATTERN = Pattern.compile(
             "(?im)^\\s*titular\\s*[:\\-]?\\s*(.+?)\\s*$");
 
+    private static final Pattern CARD_NAME_HEADER_PATTERN = Pattern.compile(
+        "(?im)^\\s*(VISA\\s+\\w+|MASTERCARD\\s+\\w+|ELO\\s+\\w+|AMEX\\s+\\w+|HIPERCARD\\s+\\w+|DINERS\\s+\\w+)\\s*$"
+    );
+
+    private static final Pattern LAST_FOUR_PATTERN = Pattern.compile(
+        "(?i)(?:final\\s+do\\s+cart[ãa]o|cart[ãa]o.*final|final)[:\\s]*\\*{4}(\\d{4})"
+    );
+
     private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
             "(?m)^(\\d{2}/\\d{2})(?:/\\d{2,4})?\\s+(.+?)\\s+(-?[\\d.,]+)\\s*$");
 
@@ -39,6 +47,7 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
     @Override
     public boolean isApplicable(String text) {
         if (text == null || text.isBlank()) return false;
+        text = preprocessText(text);
         String n = normalizeForSearch(text);
         boolean hasBank = n.contains("bradesco");
         boolean hasDue = n.contains("vencimento");
@@ -49,6 +58,7 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
     @Override
     public LocalDate extractDueDate(String text) {
         if (text == null || text.isBlank()) return null;
+        text = preprocessText(text);
         Matcher m = DUE_DATE_PATTERN.matcher(text);
         if (m.find()) {
             try {
@@ -79,9 +89,22 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
     public List<TransactionData> extractTransactions(String text) {
         if (text == null || text.isBlank()) return Collections.emptyList();
 
+        text = preprocessText(text);
+
         LocalDate dueDate = extractDueDate(text);
         String cardName = extractCardName(text);
         String holderName = extractHolderName(text);
+        String lastFourDigits = extractLastFourDigits(text);
+
+        if (cardName != null && !cardName.isBlank()) {
+            System.err.println("[Bradesco] Extracted cardName: " + cardName);
+        }
+        if (holderName != null && !holderName.isBlank()) {
+            System.err.println("[Bradesco] Extracted holderName: " + holderName);
+        }
+        if (lastFourDigits != null && !lastFourDigits.isBlank()) {
+            System.err.println("[Bradesco] Extracted lastFourDigits: " + lastFourDigits);
+        }
 
         String section = extractLaunchesSection(text);
 
@@ -127,6 +150,10 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
                 td.cardholderName = holderName;
             }
 
+            if (lastFourDigits != null && !lastFourDigits.isBlank()) {
+                td.lastFourDigits = lastFourDigits;
+            }
+
             applyInstallmentInfo(td, desc);
             out.add(td);
 
@@ -149,6 +176,59 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         return out;
     }
 
+    private String preprocessText(String text) {
+        if (text == null || text.isBlank()) return text;
+
+        // OCR often breaks a single transaction across multiple lines.
+        // Our LAUNCH_LINE_PATTERN expects "dd/MM ... amount" on one line.
+        String normalized = text.replace("\r\n", "\n").replace('\r', '\n');
+        String[] lines = normalized.split("\n", -1);
+
+        List<String> out = new ArrayList<>(lines.length);
+
+        Pattern startsWithDate = Pattern.compile("^\\s*\\d{2}/\\d{2}(?:/\\d{2,4})?\\b.*");
+        Pattern endsWithAmount = Pattern.compile("^.*\\s-?[\\d.,]+\\s*$");
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i] == null ? "" : lines[i].trim();
+            if (line.isEmpty()) continue;
+
+            boolean isDateLine = startsWithDate.matcher(line).matches();
+            boolean hasAmountAtEnd = endsWithAmount.matcher(line).matches();
+
+            if (isDateLine && !hasAmountAtEnd) {
+                String merged = line;
+                int j = i + 1;
+                int mergedLines = 0;
+
+                while (j < lines.length && mergedLines < 3) {
+                    String next = lines[j] == null ? "" : lines[j].trim();
+                    if (next.isEmpty()) {
+                        j++;
+                        continue;
+                    }
+
+                    // Stop if the next line starts a new transaction.
+                    if (startsWithDate.matcher(next).matches()) break;
+
+                    merged = (merged + " " + next).replaceAll("\\s+", " ").trim();
+                    mergedLines++;
+                    j++;
+
+                    if (endsWithAmount.matcher(merged).matches()) break;
+                }
+
+                out.add(merged);
+                i = j - 1;
+                continue;
+            }
+
+            out.add(line);
+        }
+
+        return String.join("\n", out);
+    }
+
     private BigDecimal extractExpectedTotal(String text) {
         if (text == null || text.isBlank()) return null;
         Matcher m = TOTAL_FATURA_PATTERN.matcher(text);
@@ -161,6 +241,86 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
     private String extractHolderName(String text) {
         if (text == null || text.isBlank()) return null;
         Matcher m = HOLDER_PATTERN.matcher(text);
+        if (m.find()) {
+            String v = safeTrim(m.group(1));
+            return v.isEmpty() ? null : v;
+        }
+
+        // Fallback: many Bradesco PDFs show the cardholder as a standalone uppercase line
+        // near the address/header block (often after a CTCE line).
+        String normalized = text.replace("\r\n", "\n").replace('\r', '\n');
+        String[] lines = normalized.split("\n");
+
+        int ctceIdx = -1;
+        for (int i = 0; i < Math.min(lines.length, 80); i++) {
+            String line = lines[i] == null ? "" : lines[i].trim();
+            if (line.toUpperCase().contains("CTCE")) {
+                ctceIdx = i;
+                break;
+            }
+        }
+
+        int start = ctceIdx >= 0 ? ctceIdx + 1 : 0;
+        int end = Math.min(lines.length, start + 25);
+        for (int i = start; i < end; i++) {
+            String candidate = lines[i] == null ? "" : lines[i].trim();
+            if (candidate.isEmpty()) continue;
+            if (isLikelyHolderNameLine(candidate)) {
+                return candidate;
+            }
+        }
+
+        // Last resort: scan early lines for a plausible name.
+        for (int i = 0; i < Math.min(lines.length, 40); i++) {
+            String candidate = lines[i] == null ? "" : lines[i].trim();
+            if (candidate.isEmpty()) continue;
+            if (isLikelyHolderNameLine(candidate)) {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isLikelyHolderNameLine(String line) {
+        if (line == null) return false;
+        String s = line.trim();
+        if (s.isEmpty()) return false;
+
+        // Avoid common non-name lines.
+        String upper = s.toUpperCase();
+        if (upper.contains("BRADESCO") || upper.contains("FATURA") || upper.contains("VENCIMENTO")
+                || upper.contains("TOTAL") || upper.contains("LIMITE") || upper.contains("CTCE")
+                || upper.contains("CEP") || upper.contains("R$") || upper.matches(".*\\d.*")) {
+            return false;
+        }
+
+        // Must look like a multi-word name (2-7 tokens), mostly letters/spaces.
+        if (!upper.matches("[A-ZÀ-Ü\\s']+")) return false;
+        String[] parts = upper.split("\\s+");
+        if (parts.length < 2 || parts.length > 7) return false;
+
+        int letters = 0;
+        for (int i = 0; i < upper.length(); i++) {
+            char c = upper.charAt(i);
+            if (Character.isLetter(c)) letters++;
+        }
+        return letters >= 10;
+    }
+
+    private String extractLastFourDigits(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher m = LAST_FOUR_PATTERN.matcher(text);
+        if (m.find()) {
+            String v = safeTrim(m.group(1));
+            return v.isEmpty() ? null : v;
+        }
+        return null;
+    }
+
+    private String extractCardNameFromHeader(String text) {
+        if (text == null || text.isBlank()) return null;
+        Matcher m = CARD_NAME_HEADER_PATTERN.matcher(text);
         if (m.find()) {
             String v = safeTrim(m.group(1));
             return v.isEmpty() ? null : v;
@@ -231,11 +391,20 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
     private String extractCardName(String text) {
         if (text == null || text.isBlank()) return null;
+
+        // ✨ NOVO: Tentar padrão de cabeçalho primeiro (VISA AETERNUM, MASTERCARD ITAÚ, etc.)
+        String headerName = extractCardNameFromHeader(text);
+        if (headerName != null && !headerName.isBlank()) {
+            return headerName;
+        }
+
+        // Fallback para padrão antigo (Cartão: ...)
         Matcher m = CARD_PATTERN.matcher(text);
         if (m.find()) {
             String card = safeTrim(m.group(1));
             if (!card.isEmpty()) return card;
         }
+
         return "Bradesco";
     }
 

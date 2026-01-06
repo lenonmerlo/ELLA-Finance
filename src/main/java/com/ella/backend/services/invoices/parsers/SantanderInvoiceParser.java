@@ -52,6 +52,9 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
         if (text == null || text.isBlank()) return false;
         String normalizedText = normalizeNumericDates(text);
         String n = normalizeForSearch(text);
+        // Guard: Bradesco statements can contain generic phrases like "total a pagar".
+        // If the text clearly mentions Bradesco, Santander should not claim applicability.
+        if (n.contains("bradesco")) return false;
         boolean hasSantander = n.contains("santander");
         boolean hasDue = DUE_DATE_PATTERN.matcher(normalizedText).find() || HEADER_TOTAL_AND_DUE_PATTERN.matcher(normalizedText).find();
         boolean hasTotalToPay = n.contains("total a pagar");
