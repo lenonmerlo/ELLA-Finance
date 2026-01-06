@@ -6,13 +6,16 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -163,6 +166,8 @@ public class InvoiceUploadService {
                 transactions = parseCsv(is);
             }
 
+            transactions = deduplicateTransactions(transactions);
+
             if (transactions == null || transactions.isEmpty()) {
                 if (isPdf) {
                     throw new IllegalArgumentException(
@@ -183,6 +188,55 @@ public class InvoiceUploadService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to process invoice file", e);
         }
+    }
+
+    private List<TransactionData> deduplicateTransactions(List<TransactionData> transactions) {
+        if (transactions == null || transactions.isEmpty()) return transactions;
+
+        int before = transactions.size();
+
+        LinkedHashMap<String, TransactionData> unique = new LinkedHashMap<>(before);
+        int nulls = 0;
+        for (TransactionData tx : transactions) {
+            if (tx == null) {
+                nulls++;
+                continue;
+            }
+            unique.putIfAbsent(dedupKey(tx), tx);
+        }
+
+        int after = unique.size();
+        int removed = before - after;
+        if (removed > 0 || nulls > 0) {
+            log.info("[Dedup] Removed {} duplicates ({} -> {}), droppedNulls={}", removed, before, after, nulls);
+        }
+
+        return new ArrayList<>(unique.values());
+    }
+
+    private static String dedupKey(TransactionData tx) {
+        String date = tx.date == null ? "" : tx.date.toString();
+        String due = tx.dueDate == null ? "" : tx.dueDate.toString();
+        String amount = tx.amount == null ? "" : tx.amount.toPlainString();
+        String type = tx.type == null ? "" : tx.type.name();
+        String card = tx.cardName == null ? "" : tx.cardName;
+        String holder = tx.cardholderName == null ? "" : tx.cardholderName;
+        String last4 = tx.lastFourDigits == null ? "" : tx.lastFourDigits;
+        String instNum = tx.installmentNumber == null ? "" : tx.installmentNumber.toString();
+        String instTot = tx.installmentTotal == null ? "" : tx.installmentTotal.toString();
+        String desc = normalizeForDedup(tx.description);
+
+        return date + '|' + due + '|' + amount + '|' + type + '|' + card + '|' + holder + '|' + last4 + '|' + instNum + '/' + instTot + '|' + desc;
+    }
+
+    private static String normalizeForDedup(String input) {
+        if (input == null) return "";
+        String noAccents = Normalizer.normalize(input, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "");
+        return noAccents
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     @Transactional
@@ -268,7 +322,11 @@ public class InvoiceUploadService {
                     (text.length() > 500 ? text.substring(0, 500) : text));
 
             try {
-                List<TransactionData> transactions = parsePdfText(text, dueDateFromRequest);
+                ParsedInvoice parsed = parsePdfText(text, dueDateFromRequest);
+                List<TransactionData> transactions = parsed.transactions();
+                InvoiceParserStrategy baselineParser = parsed.parser();
+                LocalDate baselineDueDate = parsed.dueDate();
+                String ocrTextCached = null;
 
                 // Diagnostic: if the invoice total is present in the extracted text, log the comparison once.
                 // This makes it obvious whether the OCR retry is being skipped due to threshold logic,
@@ -287,34 +345,66 @@ public class InvoiceUploadService {
                     }
                 }
 
-                if ((transactions == null || transactions.isEmpty()) && !ocrAttempted && ocrProperties.isEnabled()) {
-                    String ocrText = runOcrOrThrow(document);
-                    transactions = parsePdfText(ocrText, dueDateFromRequest);
+                if ((transactions == null || transactions.isEmpty()) && !ocrAttempted
+                        && (ocrProperties.isEnabled() || googleVisionEnabled)) {
+                    if (ocrTextCached == null) {
+                        ocrTextCached = runOcrOrThrow(document);
+                        ocrAttempted = true;
+                    }
+                    LocalDate dueOverride = (dueDateFromRequest != null ? dueDateFromRequest : baselineDueDate);
+                    ParsedInvoice ocrParsed = parsePdfText(ocrTextCached, dueOverride);
+                    ocrParsed = maybeReparseOcrWithBaselineParser(ocrParsed, ocrTextCached, dueOverride, baselineParser);
+                    transactions = ocrParsed.transactions();
                 }
 
                 // Some PDFs contain selectable text but with broken font encoding, producing "garbled" merchants.
                 // If we detect low-quality descriptions (or many missing purchase dates), prefer OCR when enabled.
-                if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
+                if (transactions != null && !transactions.isEmpty() && !ocrAttempted
+                        && (ocrProperties.isEnabled() || googleVisionEnabled)
                         && shouldRetryWithOcrForQuality(transactions)) {
                     log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
-                    String ocrText = runOcrOrThrow(document);
-                    List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
-                    if (isOcrResultBetter(ocrTransactions, transactions)) {
-                        return ocrTransactions;
+                    try {
+                        if (ocrTextCached == null) {
+                            ocrTextCached = runOcrOrThrow(document);
+                            ocrAttempted = true;
+                        }
+                        LocalDate dueOverride = (dueDateFromRequest != null ? dueDateFromRequest : baselineDueDate);
+                        ParsedInvoice ocrParsed = parsePdfText(ocrTextCached, dueOverride);
+                        ocrParsed = maybeReparseOcrWithBaselineParser(ocrParsed, ocrTextCached, dueOverride, baselineParser);
+                        List<TransactionData> ocrTransactions = ocrParsed.transactions();
+                        if (isOcrResultBetter(ocrTransactions, transactions)) {
+                            return ocrTransactions;
+                        }
+                    } catch (IllegalArgumentException e) {
+                        // OCR is best-effort. If it can't parse (e.g., dueDate missing), keep the baseline PDFBox result.
+                        log.warn("[OCR] OCR retry for quality failed ({}). Keeping baseline parse.", e.getMessage());
                     }
                 }
 
                 // Detect missing transactions by comparing extracted total vs. the invoice total shown on the PDF.
                 // This is intentionally conservative to avoid triggering OCR for other banks/layouts.
-                if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
+                if (transactions != null && !transactions.isEmpty() && !ocrAttempted
+                        && (ocrProperties.isEnabled() || googleVisionEnabled)
                         && shouldRetryDueToMissingTransactions(transactions, text)) {
                     log.info("[OCR] Trigger: possible missing transactions (total mismatch); retrying once with OCR...");
-                    String ocrText = runOcrOrThrow(document);
-                    List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
+                    List<TransactionData> ocrTransactions;
+                    try {
+                        if (ocrTextCached == null) {
+                            ocrTextCached = runOcrOrThrow(document);
+                            ocrAttempted = true;
+                        }
+                        LocalDate dueOverride = (dueDateFromRequest != null ? dueDateFromRequest : baselineDueDate);
+                        ParsedInvoice ocrParsed = parsePdfText(ocrTextCached, dueOverride);
+                        ocrParsed = maybeReparseOcrWithBaselineParser(ocrParsed, ocrTextCached, dueOverride, baselineParser);
+                        ocrTransactions = ocrParsed.transactions();
+                    } catch (IllegalArgumentException e) {
+                        log.warn("[OCR] OCR retry for missing transactions failed ({}). Keeping baseline parse.", e.getMessage());
+                        ocrTransactions = List.of();
+                    }
 
                     BigDecimal expected = extractInvoiceExpectedTotal(text);
                     if (expected == null) {
-                        expected = extractInvoiceExpectedTotal(ocrText);
+                        expected = extractInvoiceExpectedTotal(ocrTextCached);
                     }
 
                     if (expected != null && isOcrResultBetterForMissingTransactions(ocrTransactions, transactions, expected)) {
@@ -326,12 +416,13 @@ public class InvoiceUploadService {
             } catch (IllegalArgumentException e) {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
                 // Rationale: many PDFs have selectable text but the due date (or table) is rendered as an image.
-                if (!ocrAttempted && ocrProperties.isEnabled()) {
+                if (!ocrAttempted && (ocrProperties.isEnabled() || googleVisionEnabled)) {
                     log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());
                     ocrAttempted = true;
                     String ocrText = runOcrOrThrow(document);
                     logDueDateSignalsIfEnabled("OCR-retry", ocrText);
-                    return parsePdfText(ocrText, dueDateFromRequest);
+                    ParsedInvoice ocrParsed = parsePdfText(ocrText, dueDateFromRequest);
+                    return ocrParsed.transactions();
                 }
                 throw e;
             }
@@ -718,7 +809,10 @@ public class InvoiceUploadService {
         }
     }
 
-    private List<TransactionData> parsePdfText(String text, LocalDate dueDateFromRequest) {
+    private record ParsedInvoice(InvoiceParserStrategy parser, LocalDate dueDate, List<TransactionData> transactions) {
+    }
+
+    private ParsedInvoice parsePdfText(String text, LocalDate dueDateFromRequest) {
         String t = text == null ? "" : text;
 
         InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(invoiceParserFactory.getParsers(), t);
@@ -769,7 +863,73 @@ public class InvoiceUploadService {
                 parser.getClass().getSimpleName(), dueDate, transactions.size());
         log.info("[InvoiceUpload] Parse quality: txCount={} garbled={} missingDate={} garbledSamples={}",
                 transactions.size(), garbled, missingDate, sample);
-        return transactions;
+        return new ParsedInvoice(parser, dueDate, transactions);
+    }
+
+    private ParsedInvoice parsePdfTextWithParser(String text, LocalDate dueDateFromRequest, InvoiceParserStrategy parser, String reason) {
+        String t = text == null ? "" : text;
+        if (parser == null) {
+            throw new IllegalArgumentException("Parser inválido (null) para parsePdfTextWithParser");
+        }
+
+        LocalDate dueDate = null;
+        try {
+            dueDate = parser.extractDueDate(t);
+        } catch (Exception ignored) {
+        }
+
+        if (dueDate == null) {
+            dueDate = tryExtractDueDateFallback(t);
+        }
+        if (dueDate == null && dueDateFromRequest != null) {
+            dueDate = dueDateFromRequest;
+        }
+        if (dueDate == null) {
+            throw new IllegalArgumentException(
+                    "Não foi possível determinar a data de vencimento da fatura. " +
+                            "(parser=" + parser.getClass().getSimpleName() + ", reason=" + reason + ")"
+            );
+        }
+
+        List<TransactionData> transactions = parser.extractTransactions(t);
+        transactions = transactions == null ? List.of() : transactions;
+        for (TransactionData tx : transactions) {
+            if (tx == null) continue;
+            tx.setDueDate(dueDate);
+        }
+
+        log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={} (forced reason={})",
+                parser.getClass().getSimpleName(), dueDate, transactions.size(), reason);
+        return new ParsedInvoice(parser, dueDate, transactions);
+    }
+
+    private ParsedInvoice maybeReparseOcrWithBaselineParser(
+            ParsedInvoice ocrParsed,
+            String ocrText,
+            LocalDate dueDateFromRequest,
+            InvoiceParserStrategy baselineParser
+    ) {
+        try {
+            if (baselineParser == null) return ocrParsed;
+            if (ocrParsed == null) return null;
+
+            List<TransactionData> txs = ocrParsed.transactions();
+            if (txs != null && !txs.isEmpty()) return ocrParsed;
+
+            InvoiceParserStrategy chosen = ocrParsed.parser();
+            if (chosen != null && chosen.getClass().equals(baselineParser.getClass())) {
+                return ocrParsed;
+            }
+
+            log.warn("[InvoiceUpload][OCR] OCR parse returned 0 tx with parser={}; retrying OCR parse with baseline parser={}...",
+                    chosen == null ? "<null>" : chosen.getClass().getSimpleName(),
+                    baselineParser.getClass().getSimpleName());
+
+            return parsePdfTextWithParser(ocrText, dueDateFromRequest, baselineParser, "baseline-ocr-retry");
+        } catch (Exception e) {
+            log.warn("[InvoiceUpload][OCR] Baseline parser OCR retry failed: {}", e.toString());
+            return ocrParsed;
+        }
     }
 
     private LocalDate parseDueDateOverrideOrThrow(String dueDate) {
@@ -947,7 +1107,7 @@ public class InvoiceUploadService {
         Map<String, CreditCard> cardCache = new HashMap<>();
 
         for (TransactionData data : transactions) {
-            CardMetadata cardMetadata = extractCardMetadata(data.cardName, originalFilename);
+            CardMetadata cardMetadata = extractCardMetadata(data.cardName, originalFilename, data.lastFourDigits);
             String cacheKey = (cardMetadata.brand() + "|" + (cardMetadata.lastFourDigits() != null
                     ? cardMetadata.lastFourDigits()
                     : cardMetadata.name())).toLowerCase();
@@ -1133,9 +1293,6 @@ public class InvoiceUploadService {
         if (parsedCardholderName != null && !parsedCardholderName.isBlank()) {
             return parsedCardholderName.trim();
         }
-        if (user != null && user.getName() != null && !user.getName().isBlank()) {
-            return user.getName().trim();
-        }
         return "Titular";
     }
 
@@ -1157,6 +1314,17 @@ public class InvoiceUploadService {
             looksGeneric = equalsIgnoreCase(current, card.getBrand()) || equalsIgnoreCase(current, card.getName());
         }
 
+        // Also treat the owner's name as a placeholder (older behavior used to save user.name when parsing failed).
+        if (!looksGeneric) {
+            try {
+                var owner = card.getOwner();
+                if (owner != null && owner.getName() != null && !owner.getName().isBlank()) {
+                    looksGeneric = equalsIgnoreCase(current, owner.getName());
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
         if (looksGeneric) {
             card.setCardholderName(parsedCardholderName.trim());
             try {
@@ -1165,14 +1333,17 @@ public class InvoiceUploadService {
         }
     }
 
-    private CardMetadata extractCardMetadata(String candidateName, String filename) {
+    private CardMetadata extractCardMetadata(String candidateName, String filename, String lastFourFromData) {
         String metaSource = candidateName != null ? candidateName : "";
         String brand = detectBrand(metaSource);
         if (brand == null) {
             brand = detectBrand(filename);
         }
 
-        String lastFour = detectLastFour(metaSource);
+        String lastFour = lastFourFromData;
+        if (lastFour == null) {
+            lastFour = detectLastFour(metaSource);
+        }
         if (lastFour == null) {
             lastFour = detectLastFour(filename);
         }

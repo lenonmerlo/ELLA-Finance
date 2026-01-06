@@ -75,7 +75,7 @@ public class GoogleVisionOcrService {
                 text = r.getTextAnnotations(0).getDescription();
             }
 
-            text = text == null ? "" : text;
+            text = cleanExtractedText(text);
             long elapsedMs = System.currentTimeMillis() - startMs;
             log.info("[GoogleVision]: ✅ Texto extraído: {} caracteres em {}ms", text.length(), elapsedMs);
             return text;
@@ -123,6 +123,46 @@ public class GoogleVisionOcrService {
         }
 
         return ImageAnnotatorClient.create();
+    }
+
+    private String cleanExtractedText(String rawText) {
+        if (rawText == null || rawText.isBlank()) return "";
+
+        // Normalize whitespace and line breaks without destroying structure that parsers rely on.
+        String t = rawText
+                .replace('\u00A0', ' ')
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .replace("\u0000", "");
+
+        String[] lines = t.split("\n", -1);
+        StringBuilder sb = new StringBuilder(t.length());
+
+        int blankRun = 0;
+        for (String line : lines) {
+            String cleanedLine = rtrim(line == null ? "" : line);
+            if (cleanedLine.isBlank()) {
+                blankRun++;
+                // Keep at most 2 consecutive blank lines.
+                if (blankRun <= 2) sb.append('\n');
+                continue;
+            }
+            blankRun = 0;
+            sb.append(cleanedLine).append('\n');
+        }
+
+        return sb.toString().trim();
+    }
+
+    private static String rtrim(String value) {
+        if (value == null || value.isEmpty()) return "";
+        int end = value.length();
+        while (end > 0) {
+            char c = value.charAt(end - 1);
+            if (!Character.isWhitespace(c)) break;
+            end--;
+        }
+        return value.substring(0, end);
     }
 
     private static String safe(String value) {
