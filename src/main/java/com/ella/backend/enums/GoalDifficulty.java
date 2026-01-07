@@ -1,14 +1,13 @@
 package com.ella.backend.enums;
 
-public enum GoalStatus {
-    ACTIVE("Ativo"),
-    COMPLETED("Concluído"),
-    ABANDONED("Abandonado"),
-    CANCELLED("Cancelado");
+public enum GoalDifficulty {
+    EASY("Fácil"),
+    MEDIUM("Médio"),
+    HARD("Difícil");
 
     private final String displayName;
 
-    GoalStatus(String displayName) {
+    GoalDifficulty(String displayName) {
         this.displayName = displayName;
     }
 

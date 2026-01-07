@@ -1,14 +1,14 @@
 package com.ella.backend.enums;
 
-public enum GoalStatus {
-    ACTIVE("Ativo"),
-    COMPLETED("Concluído"),
-    ABANDONED("Abandonado"),
-    CANCELLED("Cancelado");
+public enum GoalTimeframe {
+    ONE_WEEK("1 semana"),
+    TWO_WEEKS("2 semanas"),
+    ONE_MONTH("1 mês"),
+    THREE_MONTHS("3 meses");
 
     private final String displayName;
 
-    GoalStatus(String displayName) {
+    GoalTimeframe(String displayName) {
         this.displayName = displayName;
     }
 
