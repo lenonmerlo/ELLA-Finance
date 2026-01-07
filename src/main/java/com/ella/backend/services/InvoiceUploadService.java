@@ -46,6 +46,7 @@ import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
+import com.ella.backend.services.ai.OpenAiStructuringService;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.InvoiceParserSelector;
 import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
@@ -80,6 +81,7 @@ public class InvoiceUploadService {
     private final PdfOcrExtractor pdfOcrExtractor;
     private final OcrProperties ocrProperties;
     private final Environment environment;
+    private final OpenAiStructuringService openAiStructuringService;
 
     private final AtomicBoolean debugConfigLoggedOnce = new AtomicBoolean(false);
 
@@ -357,6 +359,11 @@ public class InvoiceUploadService {
                     transactions = ocrParsed.transactions();
                 }
 
+                // If we already ran OCR earlier in this method, reuse it as cached OCR text.
+                if (ocrAttempted && (ocrTextCached == null || ocrTextCached.isBlank())) {
+                    ocrTextCached = text;
+                }
+
                 // Some PDFs contain selectable text but with broken font encoding, producing "garbled" merchants.
                 // If we detect low-quality descriptions (or many missing purchase dates), prefer OCR when enabled.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted
@@ -412,6 +419,40 @@ public class InvoiceUploadService {
                     }
                 }
 
+                // Final fallback: when we still have 0 transactions after parsers (and OCR when enabled),
+                // try structuring the OCR text via OpenAI. This is meant for unsupported banks/layouts.
+                if ((transactions == null || transactions.isEmpty()) && googleVisionEnabled) {
+                    try {
+                        if (ocrTextCached == null || ocrTextCached.isBlank()) {
+                            ocrTextCached = runOcrOrThrow(document);
+                            ocrAttempted = true;
+                        }
+
+                        log.info("[InvoiceUpload] Fallback para Google Vision + OpenAI (baselineParser={} ocrAttempted={} ocrLen={})",
+                                baselineParser == null ? "<null>" : baselineParser.getClass().getSimpleName(),
+                                ocrAttempted,
+                                ocrTextCached == null ? 0 : ocrTextCached.length());
+
+                        var structured = openAiStructuringService.structureInvoiceData(ocrTextCached);
+                        if (structured != null && structured.getTransactions() != null && !structured.getTransactions().isEmpty()) {
+                            LocalDate resolvedDue = dueDateFromRequest != null
+                                    ? dueDateFromRequest
+                                    : (baselineDueDate != null ? baselineDueDate : structured.getDueDate());
+
+                            if (resolvedDue != null) {
+                                for (TransactionData tx : structured.getTransactions()) {
+                                    if (tx == null) continue;
+                                    tx.setDueDate(resolvedDue);
+                                }
+                            }
+
+                            return structured.getTransactions();
+                        }
+                    } catch (Exception e) {
+                        log.warn("[InvoiceUpload][OpenAI] Fallback falhou: {}", e.toString());
+                    }
+                }
+
                 return transactions;
             } catch (IllegalArgumentException e) {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
@@ -421,8 +462,33 @@ public class InvoiceUploadService {
                     ocrAttempted = true;
                     String ocrText = runOcrOrThrow(document);
                     logDueDateSignalsIfEnabled("OCR-retry", ocrText);
-                    ParsedInvoice ocrParsed = parsePdfText(ocrText, dueDateFromRequest);
-                    return ocrParsed.transactions();
+
+                    try {
+                        ParsedInvoice ocrParsed = parsePdfText(ocrText, dueDateFromRequest);
+                        List<TransactionData> txs = ocrParsed.transactions();
+                        if (txs != null && !txs.isEmpty()) {
+                            return txs;
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                        // fall through to OpenAI fallback below
+                    }
+
+                    if (googleVisionEnabled) {
+                        log.info("[InvoiceUpload] Fallback para Google Vision + OpenAI (parsers falharam após OCR-retry) ocrLen={}",
+                                ocrText == null ? 0 : ocrText.length());
+
+                        var structured = openAiStructuringService.structureInvoiceData(ocrText);
+                        if (structured != null && structured.getTransactions() != null && !structured.getTransactions().isEmpty()) {
+                            LocalDate resolvedDue = dueDateFromRequest != null ? dueDateFromRequest : structured.getDueDate();
+                            if (resolvedDue != null) {
+                                for (TransactionData tx : structured.getTransactions()) {
+                                    if (tx == null) continue;
+                                    tx.setDueDate(resolvedDue);
+                                }
+                            }
+                            return structured.getTransactions();
+                        }
+                    }
                 }
                 throw e;
             }

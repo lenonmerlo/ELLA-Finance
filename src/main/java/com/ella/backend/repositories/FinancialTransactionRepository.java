@@ -24,6 +24,11 @@ public interface FinancialTransactionRepository extends JpaRepository<FinancialT
             LocalDate endDate
     );
 
+    List<FinancialTransaction> findByPersonAndTransactionDateAfter(
+            Person person,
+            LocalDate startDate
+    );
+
     Page<FinancialTransaction> findByPersonAndTransactionDateBetween(
             Person person,
             LocalDate startDate,
