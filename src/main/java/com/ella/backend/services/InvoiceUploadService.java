@@ -97,9 +97,6 @@ public class InvoiceUploadService {
     @Value("${ella.invoice.debug.due-date-context-chars:${ella.invoice.debug.due.date.context.chars:140}}")
     private int dueDateContextChars;
 
-    @Value("${google.cloud.vision.enabled:false}")
-    private boolean googleVisionEnabled;
-
     @PostConstruct
     void logDebugFlags() {
         logDebugConfigSnapshot("@PostConstruct");
@@ -176,7 +173,6 @@ public class InvoiceUploadService {
                             "Não foi possível extrair transações desse PDF. " +
                                     "Ele pode estar escaneado (imagem), protegido, ou ter um layout ainda não suportado. " +
                             "Se o PDF for escaneado, habilite OCR (ella.ocr.enabled=true) e confirme o Tesseract/idioma instalados " +
-                            "ou habilite Google Vision (google.cloud.vision.enabled=true) e configure GOOGLE_APPLICATION_CREDENTIALS. " +
                                     "Como alternativa, tente exportar/enviar um CSV, ou um PDF com texto selecionável."
                     );
                 }
@@ -348,7 +344,7 @@ public class InvoiceUploadService {
                 }
 
                 if ((transactions == null || transactions.isEmpty()) && !ocrAttempted
-                        && (ocrProperties.isEnabled() || googleVisionEnabled)) {
+                        && (ocrProperties.isEnabled())) {
                     if (ocrTextCached == null) {
                         ocrTextCached = runOcrOrThrow(document);
                         ocrAttempted = true;
@@ -367,33 +363,9 @@ public class InvoiceUploadService {
                 // Some PDFs contain selectable text but with broken font encoding, producing "garbled" merchants.
                 // If we detect low-quality descriptions (or many missing purchase dates), prefer OCR when enabled.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted
-                        && (ocrProperties.isEnabled() || googleVisionEnabled)
+                        && (ocrProperties.isEnabled())
                         && shouldRetryWithOcrForQuality(transactions)) {
                     log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
-                    try {
-                        if (ocrTextCached == null) {
-                            ocrTextCached = runOcrOrThrow(document);
-                            ocrAttempted = true;
-                        }
-                        LocalDate dueOverride = (dueDateFromRequest != null ? dueDateFromRequest : baselineDueDate);
-                        ParsedInvoice ocrParsed = parsePdfText(ocrTextCached, dueOverride);
-                        ocrParsed = maybeReparseOcrWithBaselineParser(ocrParsed, ocrTextCached, dueOverride, baselineParser);
-                        List<TransactionData> ocrTransactions = ocrParsed.transactions();
-                        if (isOcrResultBetter(ocrTransactions, transactions)) {
-                            return ocrTransactions;
-                        }
-                    } catch (IllegalArgumentException e) {
-                        // OCR is best-effort. If it can't parse (e.g., dueDate missing), keep the baseline PDFBox result.
-                        log.warn("[OCR] OCR retry for quality failed ({}). Keeping baseline parse.", e.getMessage());
-                    }
-                }
-
-                // Detect missing transactions by comparing extracted total vs. the invoice total shown on the PDF.
-                // This is intentionally conservative to avoid triggering OCR for other banks/layouts.
-                if (transactions != null && !transactions.isEmpty() && !ocrAttempted
-                        && (ocrProperties.isEnabled() || googleVisionEnabled)
-                        && shouldRetryDueToMissingTransactions(transactions, text)) {
-                    log.info("[OCR] Trigger: possible missing transactions (total mismatch); retrying once with OCR...");
                     List<TransactionData> ocrTransactions;
                     try {
                         if (ocrTextCached == null) {
@@ -405,30 +377,25 @@ public class InvoiceUploadService {
                         ocrParsed = maybeReparseOcrWithBaselineParser(ocrParsed, ocrTextCached, dueOverride, baselineParser);
                         ocrTransactions = ocrParsed.transactions();
                     } catch (IllegalArgumentException e) {
-                        log.warn("[OCR] OCR retry for missing transactions failed ({}). Keeping baseline parse.", e.getMessage());
+                        log.warn("[OCR] OCR retry for quality failed ({}). Keeping baseline parse.", e.getMessage());
                         ocrTransactions = List.of();
                     }
 
-                    BigDecimal expected = extractInvoiceExpectedTotal(text);
-                    if (expected == null) {
-                        expected = extractInvoiceExpectedTotal(ocrTextCached);
-                    }
-
-                    if (expected != null && isOcrResultBetterForMissingTransactions(ocrTransactions, transactions, expected)) {
+                    if (ocrTransactions != null && !ocrTransactions.isEmpty()) {
                         return ocrTransactions;
                     }
                 }
 
-                // Final fallback: when we still have 0 transactions after parsers (and OCR when enabled),
-                // try structuring the OCR text via OpenAI. This is meant for unsupported banks/layouts.
-                if ((transactions == null || transactions.isEmpty()) && googleVisionEnabled) {
+                // Final fallback: when we still have 0 transactions after parsers,
+                // try structuring OCR text via OpenAI (when OCR is enabled).
+                if ((transactions == null || transactions.isEmpty()) && ocrProperties.isEnabled()) {
                     try {
                         if (ocrTextCached == null || ocrTextCached.isBlank()) {
                             ocrTextCached = runOcrOrThrow(document);
                             ocrAttempted = true;
                         }
 
-                        log.info("[InvoiceUpload] Fallback para Google Vision + OpenAI (baselineParser={} ocrAttempted={} ocrLen={})",
+                        log.info("[InvoiceUpload] Fallback para Tesseract + OpenAI (baselineParser={} ocrAttempted={} ocrLen={})",
                                 baselineParser == null ? "<null>" : baselineParser.getClass().getSimpleName(),
                                 ocrAttempted,
                                 ocrTextCached == null ? 0 : ocrTextCached.length());
@@ -457,7 +424,7 @@ public class InvoiceUploadService {
             } catch (IllegalArgumentException e) {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
                 // Rationale: many PDFs have selectable text but the due date (or table) is rendered as an image.
-                if (!ocrAttempted && (ocrProperties.isEnabled() || googleVisionEnabled)) {
+                if (!ocrAttempted && (ocrProperties.isEnabled())) {
                     log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());
                     ocrAttempted = true;
                     String ocrText = runOcrOrThrow(document);
@@ -473,21 +440,19 @@ public class InvoiceUploadService {
                         // fall through to OpenAI fallback below
                     }
 
-                    if (googleVisionEnabled) {
-                        log.info("[InvoiceUpload] Fallback para Google Vision + OpenAI (parsers falharam após OCR-retry) ocrLen={}",
-                                ocrText == null ? 0 : ocrText.length());
+                    log.info("[InvoiceUpload] Fallback para Tesseract + OpenAI (parsers falharam após OCR-retry) ocrLen={}",
+                            ocrText == null ? 0 : ocrText.length());
 
-                        var structured = openAiStructuringService.structureInvoiceData(ocrText);
-                        if (structured != null && structured.getTransactions() != null && !structured.getTransactions().isEmpty()) {
-                            LocalDate resolvedDue = dueDateFromRequest != null ? dueDateFromRequest : structured.getDueDate();
-                            if (resolvedDue != null) {
-                                for (TransactionData tx : structured.getTransactions()) {
-                                    if (tx == null) continue;
-                                    tx.setDueDate(resolvedDue);
-                                }
+                    var structured = openAiStructuringService.structureInvoiceData(ocrText);
+                    if (structured != null && structured.getTransactions() != null && !structured.getTransactions().isEmpty()) {
+                        LocalDate resolvedDue = dueDateFromRequest != null ? dueDateFromRequest : structured.getDueDate();
+                        if (resolvedDue != null) {
+                            for (TransactionData tx : structured.getTransactions()) {
+                                if (tx == null) continue;
+                                tx.setDueDate(resolvedDue);
                             }
-                            return structured.getTransactions();
                         }
+                        return structured.getTransactions();
                     }
                 }
                 throw e;
@@ -824,12 +789,11 @@ public class InvoiceUploadService {
     }
 
     private boolean shouldAttemptOcr(String extractedText) {
-        if (!ocrProperties.isEnabled() && !googleVisionEnabled) return false;
+        if (!ocrProperties.isEnabled()) return false;
 
         String t = extractedText == null ? "" : extractedText;
         if (t.isBlank()) {
-            log.info("[OCR] Trigger: extracted text is blank (tesseractEnabled={} googleVisionEnabled={})",
-                    ocrProperties.isEnabled(), googleVisionEnabled);
+            log.info("[OCR] Trigger: extracted text is blank (tesseractEnabled={})", ocrProperties.isEnabled());
             return true;
         }
 
@@ -851,8 +815,8 @@ public class InvoiceUploadService {
         boolean tooGarbled = replacement > 10;
 
         if (tooLittleSignal || tooGarbled) {
-            log.info("[OCR] Trigger: enabled=true textLen={} nonWs={} alnum={} minTextLen={} replacement={} tesseractEnabled={} googleVisionEnabled={}",
-                t.length(), nonWhitespace, alnum, minLen, replacement, ocrProperties.isEnabled(), googleVisionEnabled);
+            log.info("[OCR] Trigger: enabled=true textLen={} nonWs={} alnum={} minTextLen={} replacement={} tesseractEnabled={}",
+                t.length(), nonWhitespace, alnum, minLen, replacement, ocrProperties.isEnabled());
             return true;
         }
 
@@ -861,15 +825,13 @@ public class InvoiceUploadService {
 
     private String runOcrOrThrow(PDDocument document) {
         try {
-            log.info("[OCR] Attempting OCR fallback (tesseractEnabled={} googleVisionEnabled={})",
-                    ocrProperties.isEnabled(), googleVisionEnabled);
+            log.info("[OCR] Attempting OCR fallback (tesseractEnabled={})", ocrProperties.isEnabled());
             String ocrText = pdfOcrExtractor.extractText(document);
             return ocrText == null ? "" : ocrText;
         } catch (OcrException e) {
             throw new IllegalArgumentException(
                     "Falha ao aplicar OCR neste PDF. " +
-                            "Verifique Google Vision (google.cloud.vision.enabled e GOOGLE_APPLICATION_CREDENTIALS) " +
-                            "e/ou Tesseract (ella.ocr.enabled, ella.ocr.language, ella.ocr.tessdata-path).",
+                            "Verifique Tesseract (ella.ocr.enabled, ella.ocr.language, ella.ocr.tessdata-path).",
                     e
             );
         }
