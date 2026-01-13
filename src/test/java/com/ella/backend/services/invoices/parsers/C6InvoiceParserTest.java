@@ -111,4 +111,101 @@ class C6InvoiceParserTest {
         assertTrue(parser.isApplicable(text));
         assertEquals(LocalDate.of(2025, 12, 20), parser.extractDueDate(text));
     }
+
+    @Test
+    void extractsTransactionsWithNumberedDescriptionsAndOcrMonthDigits() {
+        String text = String.join("\n",
+                "C6 BANK",
+                "Vencimento: 20/12/2025",
+                "Transações",
+                "C6 Carbon Virtual Final 5867 - LENON MERLO",
+                "21 n0v   59146329HEBER   52,00"
+        );
+
+        C6InvoiceParser parser = new C6InvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+
+        assertEquals(1, txs.size());
+        TransactionData t = txs.get(0);
+        assertEquals("59146329HEBER", t.description);
+        assertEquals(0, t.amount.compareTo(new BigDecimal("52.00")));
+        assertEquals(TransactionType.EXPENSE, t.type);
+        assertEquals(LocalDate.of(2025, 11, 21), t.date);
+    }
+
+    @Test
+    void skipsSummarySectionLinesThatLookLikeTransactions() {
+        String text = String.join("\n",
+                "C6 BANK",
+                "Vencimento: 20/12/2025",
+                "Resumo da fatura",
+                "21 nov   Compras nacionais   5.098,40",
+                "Transações",
+                "C6 Carbon Virtual Final 5867 - LENON MERLO",
+                "14 nov   BAR PIMENTA CARIOCA   92,40"
+        );
+
+        C6InvoiceParser parser = new C6InvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertEquals(1, txs.size());
+        assertEquals("BAR PIMENTA CARIOCA", txs.get(0).description);
+    }
+
+    @Test
+    void deduplicatesWhenSameCardSectionRepeats() {
+        String text = String.join("\n",
+                "C6 BANK",
+                "Vencimento: 20/12/2025",
+                "Transações",
+                "C6 Carbon Virtual Final 5867 - LENON MERLO",
+                "14 nov   BAR PIMENTA CARIOCA   92,40",
+                // Repete o mesmo cartão (ex.: página duplicada)
+                "C6 Carbon Virtual Final 5867 - LENON MERLO",
+                "14 nov   BAR PIMENTA CARIOCA   92,40"
+        );
+
+        C6InvoiceParser parser = new C6InvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertEquals(1, txs.size());
+        assertEquals("BAR PIMENTA CARIOCA", txs.get(0).description);
+    }
+
+    @Test
+    void doesNotDeduplicateSameDescriptionWithDifferentAmounts() {
+        String text = String.join("\n",
+                "C6 BANK",
+                "Vencimento: 20/12/2025",
+                "Transações",
+                "C6 Carbon Virtual Final 5867 - LENON MERLO",
+                "21 nov   BAR PIMENTA CARIOCA   11,00",
+                "21 nov   BAR PIMENTA CARIOCA   11,00",
+                "21 nov   BAR PIMENTA CARIOCA   18,00"
+        );
+
+        C6InvoiceParser parser = new C6InvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+
+        assertEquals(2, txs.size());
+        assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("11.00")));
+        assertEquals(0, txs.get(1).amount.compareTo(new BigDecimal("18.00")));
+    }
+
+    @Test
+    void infersPreviousYearWhenTransactionMonthIsAfterDueMonth() {
+        String text = String.join("\n",
+                "C6 BANK",
+                "Vencimento: 19/02/2026",
+                "Transações",
+                "C6 Carbon Virtual Final 5867 - LENON MERLO",
+                "27 dez   AIRBNB * HMF99EFWK9   369,48",
+                "02 fev   SHOPEE *LIVICOMPANY   66,41"
+        );
+
+        C6InvoiceParser parser = new C6InvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+
+        assertEquals(2, txs.size());
+        assertEquals(LocalDate.of(2025, 12, 27), txs.get(0).date);
+        assertEquals(LocalDate.of(2026, 2, 2), txs.get(1).date);
+    }
 }

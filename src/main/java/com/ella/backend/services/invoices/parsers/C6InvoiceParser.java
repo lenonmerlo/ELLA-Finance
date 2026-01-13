@@ -6,7 +6,9 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -14,6 +16,15 @@ import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.enums.TransactionType;
 
 public class C6InvoiceParser implements InvoiceParserStrategy {
+
+    private enum Section {
+        NONE,
+        TRANSACTIONS,
+        SUMMARY,
+        PAYMENT_OPTIONS
+    }
+
+    private final Set<String> seenTransactions = new HashSet<>();
 
     private static final Pattern DUE_DATE_PATTERN = Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}/\\d{4})");
 
@@ -25,7 +36,7 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
     // Ex.: 27 out AIRBNB * HMF99EFWK9 - Parcela 2/3 369,48
     // Ex.: 14 nov BAR PIMENTA CARIOCA 92,40
     private static final Pattern TX_LINE_PATTERN = Pattern.compile(
-            "(?i)^(\\d{1,2})\\s+([a-z]{3})\\s+(.+?)(?:\\s+-\\s+parcela\\s+(\\d+)\\s*/\\s*(\\d+))?\\s+(-?[\\d\\.,]+)\\s*$");
+            "(?i)^(\\d{1,2})\\s+([a-z0-9]{3})\\s+(.+?)(?:\\s+-\\s+parcela\\s+(\\d+)\\s*/\\s*(\\d+))?\\s+(-?[\\d\\.,]+)\\s*$");
 
     private static final DateTimeFormatter DUE_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
@@ -204,7 +215,10 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
     public List<TransactionData> extractTransactions(String text) {
         if (text == null || text.isBlank()) return Collections.emptyList();
 
+        System.out.println("[C6Parser] Starting extraction...");
+
         LocalDate dueDate = extractDueDate(text);
+        System.out.println("[C6Parser] Due date: " + dueDate);
         if (dueDate == null) {
             // Mantém comportamento consistente com outros parsers: se não houver vencimento,
             // ainda tentamos extrair transações, mas a purchaseDate pode ficar incompleta.
@@ -212,6 +226,11 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
 
         List<TransactionData> out = new ArrayList<>();
         String currentCardName = null;
+
+        // Garante que o deduplicador não vaze entre execuções (instância pode ser reutilizada).
+        seenTransactions.clear();
+
+        Section section = Section.NONE;
 
         String[] lines = text.split("\\r?\\n");
         for (String raw : lines) {
@@ -221,11 +240,34 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
             // Alguns extratores preservam pipes/colunas; normaliza para facilitar o regex.
             line = line.replace("|", " ").replaceAll("\\s+", " ").trim();
 
+            String nLine = normalizeForSearch(line);
+            if (nLine.contains("resumo") && nLine.contains("fatura")) {
+                section = Section.SUMMARY;
+                continue;
+            }
+            if (nLine.contains("transacoes") || nLine.contains("transações")) {
+                section = Section.TRANSACTIONS;
+                continue;
+            }
+
+            if (section == Section.SUMMARY) {
+                if (nLine.contains("compras") || nLine.contains("juros") || nLine.contains("tarifa") || nLine.contains("total a pagar")) {
+                    continue;
+                }
+            }
+
             Matcher cardMatcher = CARD_HEADER_PATTERN.matcher(line);
             if (cardMatcher.find()) {
                 String card = safeTrim(cardMatcher.group(1));
                 String last4 = safeTrim(cardMatcher.group(2));
-                currentCardName = (card.isEmpty() ? "C6" : card) + (last4.isEmpty() ? "" : " " + last4);
+                String newCardName = (card.isEmpty() ? "C6" : card) + (last4.isEmpty() ? "" : " " + last4);
+
+                if (currentCardName != null && !currentCardName.equals(newCardName)) {
+                    seenTransactions.clear();
+                }
+
+                currentCardName = newCardName;
+                System.out.println("[C6Parser] Found card: " + currentCardName);
                 continue;
             }
 
@@ -243,7 +285,13 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
 
             LocalDate purchaseDate = buildPurchaseDate(day, mon, dueDate);
             TransactionType type = inferType(desc, amount);
-                String category = MerchantCategoryMapper.categorize(desc, type);
+
+            String lowerDesc = desc.toLowerCase();
+            if (lowerDesc.contains("pagamento") || lowerDesc.contains("estorno") || lowerDesc.contains("credito") || lowerDesc.contains("crédito") || lowerDesc.contains("inclusao")) {
+                type = TransactionType.INCOME;
+            }
+
+            String category = MerchantCategoryMapper.categorize(desc, type);
 
             TransactionData td = new TransactionData(
                     desc,
@@ -258,10 +306,65 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
                 td.installmentNumber = instNum;
                 td.installmentTotal = instTot;
             }
+
+            if (!isValidTransaction(td)) {
+                System.out.println("[C6Parser] INVALID TRANSACTION SKIPPED: " + desc);
+                continue;
+            }
+
+            String dedupKey = createDedupKey(td);
+            if (seenTransactions.contains(dedupKey)) {
+                System.out.println("[C6Parser] DUPLICATE SKIPPED: " + desc + " = " + td.amount);
+                continue;
+            }
+            seenTransactions.add(dedupKey);
+
+            System.out.println("[C6Parser] [" + currentCardName + "] Extracted: " + desc + " = " + amount.abs() + " [" + td.date + "]");
             out.add(td);
         }
 
+        System.out.println("[C6Parser] Total extracted: " + out.size() + " transactions");
         return out;
+    }
+
+    private String createDedupKey(TransactionData tx) {
+        if (tx == null) return "";
+        // Dedup: data + descrição (normalizada) + valor
+        String d = tx.date == null ? "" : tx.date.toString();
+        String desc = tx.description == null ? "" : normalizeForSearch(tx.description);
+        String a = tx.amount == null ? "" : tx.amount.toPlainString();
+        return d + "|" + desc + "|" + a;
+    }
+
+    private int parseMonth(String monthStr) {
+        int month = getMonthFromAbbreviation(monthStr);
+        return month < 1 ? 1 : month;
+    }
+
+    private int inferYearFromMonth(int month, LocalDate dueDate) {
+        if (dueDate == null) return LocalDate.now().getYear();
+
+        int dueMonth = dueDate.getMonthValue();
+        int dueYear = dueDate.getYear();
+
+        // Se mês da transação <= mês do vencimento, mesmo ano
+        if (month <= dueMonth) {
+            return dueYear;
+        }
+
+        // Se mês da transação > mês do vencimento, ano anterior
+        return dueYear - 1;
+    }
+
+    private boolean isValidTransaction(TransactionData tx) {
+        if (tx == null) return false;
+
+        if (tx.description == null || tx.description.length() < 2) return false;
+        if (tx.amount == null || tx.amount.signum() == 0) return false;
+        if (tx.date == null) return false;
+        if (tx.type == null) return false;
+
+        return true;
     }
 
     private String normalizeForSearch(String input) {
@@ -306,7 +409,11 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
 
     private int getMonthFromAbbreviation(String mon) {
         if (mon == null) return -1;
-        return switch (mon.trim().toLowerCase()) {
+        String cleaned = mon.trim().toLowerCase();
+        // Alguns PDFs vêm com OCR/extração trocando 'o' por '0' (ex.: "n0v", "0ut").
+        cleaned = cleaned.replace('0', 'o');
+
+        return switch (cleaned) {
             case "jan" -> 1;
             case "fev", "feb" -> 2;
             case "mar" -> 3;
@@ -338,13 +445,8 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
 
     private LocalDate buildPurchaseDate(int day, String mon, LocalDate dueDate) {
         try {
-            int month = getMonthFromAbbreviation(mon);
-            if (month < 1) return null;
-
-            int year = (dueDate != null ? dueDate.getYear() : LocalDate.now().getYear());
-            if (dueDate != null && dueDate.getMonthValue() == 1 && month == 12) {
-                year = year - 1;
-            }
+            int month = parseMonth(mon);
+            int year = inferYearFromMonth(month, dueDate);
 
             LocalDate base = LocalDate.of(year, month, 1);
             int dom = Math.min(day, base.lengthOfMonth());

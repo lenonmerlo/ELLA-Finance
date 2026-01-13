@@ -160,6 +160,8 @@ public class InvoiceUploadService {
                 transactions = parseCsv(is);
             }
 
+            transactions = deduplicateTransactions(transactions);
+
             if (transactions == null || transactions.isEmpty()) {
                 if (isPdf) {
                     throw new IllegalArgumentException(
@@ -179,6 +181,68 @@ public class InvoiceUploadService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to process invoice file", e);
         }
+    }
+
+    private List<TransactionData> deduplicateTransactions(List<TransactionData> transactions) {
+        if (transactions == null || transactions.isEmpty()) return transactions;
+
+        int before = transactions.size();
+
+        // Importante: não podemos deduplicar por (data+descrição+valor), pois transações legítimas podem se repetir.
+        // Aqui removemos APENAS duplicatas estritamente idênticas (mesmos campos relevantes, incluindo cartão/parcelas/tipo).
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        List<TransactionData> uniqueTransactions = new ArrayList<>();
+        int nulls = 0;
+        int removed = 0;
+
+        for (TransactionData tx : transactions) {
+            if (tx == null) {
+                nulls++;
+                continue;
+            }
+
+            String key = exactDedupKey(tx);
+            if (!seen.add(key)) {
+                removed++;
+                continue;
+            }
+            uniqueTransactions.add(tx);
+        }
+
+        int after = uniqueTransactions.size();
+        if (removed > 0 || nulls > 0) {
+            log.info("[Dedup] Removed {} exact duplicates ({} -> {}), droppedNulls={}", removed, before, after, nulls);
+        }
+
+        return uniqueTransactions;
+    }
+
+    private String exactDedupKey(TransactionData tx) {
+        if (tx == null) return "";
+
+        String purchaseDate = tx.date != null ? tx.date.toString() : "";
+        String dueDate = tx.dueDate != null ? tx.dueDate.toString() : "";
+        String amount = tx.amount != null ? tx.amount.toPlainString() : "";
+
+        String type = tx.type != null ? tx.type.name() : "";
+        String scope = tx.scope != null ? tx.scope.name() : "";
+
+        String desc = normalizeKeyField(tx.description);
+        String cardName = normalizeKeyField(tx.cardName);
+        String cardholder = normalizeKeyField(tx.cardholderName);
+
+        String instN = tx.installmentNumber != null ? tx.installmentNumber.toString() : "";
+        String instT = tx.installmentTotal != null ? tx.installmentTotal.toString() : "";
+
+        return purchaseDate + "|" + dueDate + "|" + amount + "|" + type + "|" + scope + "|" + desc + "|" + cardName + "|" + cardholder + "|" + instN + "/" + instT;
+    }
+
+    private static String normalizeKeyField(String value) {
+        if (value == null) return "";
+        String v = value.trim();
+        if (v.isEmpty()) return "";
+        v = v.replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+        return v;
     }
 
     @Transactional
@@ -296,6 +360,7 @@ public class InvoiceUploadService {
                     String ocrText = runOcrOrThrow(document);
                     List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
                     if (isOcrResultBetter(ocrTransactions, transactions)) {
+                        logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
                         return ocrTransactions;
                     }
                 }
@@ -314,10 +379,12 @@ public class InvoiceUploadService {
                     }
 
                     if (expected != null && isOcrResultBetterForMissingTransactions(ocrTransactions, transactions, expected)) {
+                        logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
                         return ocrTransactions;
                     }
                 }
 
+                logInvoiceTotalValidation(ocrAttempted ? "OCR" : "PDFBox", text, transactions);
                 return transactions;
             } catch (IllegalArgumentException e) {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
@@ -327,7 +394,9 @@ public class InvoiceUploadService {
                     ocrAttempted = true;
                     String ocrText = runOcrOrThrow(document);
                     logDueDateSignalsIfEnabled("OCR-retry", ocrText);
-                    return parsePdfText(ocrText, dueDateFromRequest);
+                    List<TransactionData> parsed = parsePdfText(ocrText, dueDateFromRequest);
+                    logInvoiceTotalValidation("OCR", ocrText, parsed);
+                    return parsed;
                 }
                 throw e;
             }
@@ -336,6 +405,26 @@ public class InvoiceUploadService {
                 throw new IllegalArgumentException("Senha incorreta para o arquivo PDF.");
             }
             throw new IllegalArgumentException("O arquivo PDF está protegido por senha. Por favor, forneça a senha.");
+        }
+    }
+
+    private void logInvoiceTotalValidation(String source, String text, List<TransactionData> transactions) {
+        try {
+            if (transactions == null || transactions.isEmpty()) return;
+
+            BigDecimal expectedTotal = extractInvoiceExpectedTotal(text);
+            if (expectedTotal == null || expectedTotal.compareTo(BigDecimal.ZERO) <= 0) return;
+
+            BigDecimal extractedTotal = sumAbsoluteAmounts(transactions);
+            BigDecimal difference = extractedTotal.subtract(expectedTotal).abs();
+
+            log.info("[VALIDATION][{}] Total Extraído: R$ {}, Total Esperado: R$ {}, Diferença: R$ {}",
+                    source, extractedTotal, expectedTotal, difference);
+
+            if (difference.compareTo(new BigDecimal("0.01")) > 0) {
+                log.warn("[VALIDATION][{}] A diferença entre o total extraído e o esperado é maior que 1 centavo!", source);
+            }
+        } catch (Exception ignored) {
         }
     }
 
