@@ -43,6 +43,7 @@ import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
+import com.ella.backend.services.invoices.parsers.C6InvoiceParser;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.InvoiceParserSelector;
 import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
@@ -298,16 +299,30 @@ public class InvoiceUploadService {
             String text = pdfTextExtractor.extractText(document);
             text = text == null ? "" : text;
 
+            // Identifica o parser baseado no texto do PDFBox para decidir políticas específicas.
+            InvoiceParserStrategy baselineParser = null;
+            try {
+                InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(invoiceParserFactory.getParsers(), text);
+                baselineParser = selection != null && selection.chosen() != null ? selection.chosen().parser() : null;
+            } catch (Exception ignored) {
+                baselineParser = null;
+            }
+            boolean skipOcrForC6 = baselineParser instanceof C6InvoiceParser;
+
             logExtractedTextIfEnabled("PDFBox", text);
             logDueDateSignalsIfEnabled("PDFBox", text);
 
             boolean ocrAttempted = false;
             if (shouldAttemptOcr(text)) {
+                if (skipOcrForC6) {
+                    log.info("[InvoiceUpload][OCR] Skipping OCR for C6 (disabled temporarily)");
+                } else {
                 text = runOcrOrThrow(document);
                 ocrAttempted = true;
 
                 logExtractedTextIfEnabled("OCR", text);
                 logDueDateSignalsIfEnabled("OCR", text);
+                }
             }
 
             if (text.isBlank()) {
@@ -348,20 +363,30 @@ public class InvoiceUploadService {
                 }
 
                 if ((transactions == null || transactions.isEmpty()) && !ocrAttempted && ocrProperties.isEnabled()) {
-                    String ocrText = runOcrOrThrow(document);
-                    transactions = parsePdfText(ocrText, dueDateFromRequest);
+                    if (skipOcrForC6) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for C6 (disabled temporarily)");
+                    } else {
+                        String ocrText = runOcrOrThrow(document);
+                        transactions = parsePdfText(ocrText, dueDateFromRequest);
+                        ocrAttempted = true;
+                    }
                 }
 
                 // Some PDFs contain selectable text but with broken font encoding, producing "garbled" merchants.
                 // If we detect low-quality descriptions (or many missing purchase dates), prefer OCR when enabled.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryWithOcrForQuality(transactions)) {
-                    log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
-                    String ocrText = runOcrOrThrow(document);
-                    List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
-                    if (isOcrResultBetter(ocrTransactions, transactions)) {
-                        logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
-                        return ocrTransactions;
+                    if (skipOcrForC6) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for C6 (disabled temporarily)");
+                    } else {
+                        log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
+                        String ocrText = runOcrOrThrow(document);
+                        ocrAttempted = true;
+                        List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
+                        if (isOcrResultBetter(ocrTransactions, transactions)) {
+                            logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
+                            return ocrTransactions;
+                        }
                     }
                 }
 
@@ -369,18 +394,23 @@ public class InvoiceUploadService {
                 // This is intentionally conservative to avoid triggering OCR for other banks/layouts.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryDueToMissingTransactions(transactions, text)) {
-                    log.info("[OCR] Trigger: possible missing transactions (total mismatch); retrying once with OCR...");
-                    String ocrText = runOcrOrThrow(document);
-                    List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
+                    if (skipOcrForC6) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for C6 (disabled temporarily)");
+                    } else {
+                        log.info("[OCR] Trigger: possible missing transactions (total mismatch); retrying once with OCR...");
+                        String ocrText = runOcrOrThrow(document);
+                        ocrAttempted = true;
+                        List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
 
-                    BigDecimal expected = extractInvoiceExpectedTotal(text);
-                    if (expected == null) {
-                        expected = extractInvoiceExpectedTotal(ocrText);
-                    }
+                        BigDecimal expected = extractInvoiceExpectedTotal(text);
+                        if (expected == null) {
+                            expected = extractInvoiceExpectedTotal(ocrText);
+                        }
 
-                    if (expected != null && isOcrResultBetterForMissingTransactions(ocrTransactions, transactions, expected)) {
-                        logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
-                        return ocrTransactions;
+                        if (expected != null && isOcrResultBetterForMissingTransactions(ocrTransactions, transactions, expected)) {
+                            logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
+                            return ocrTransactions;
+                        }
                     }
                 }
 
@@ -390,6 +420,10 @@ public class InvoiceUploadService {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
                 // Rationale: many PDFs have selectable text but the due date (or table) is rendered as an image.
                 if (!ocrAttempted && ocrProperties.isEnabled()) {
+                    if (skipOcrForC6) {
+                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for C6 (disabled temporarily): {}", e.getMessage());
+                        throw e;
+                    }
                     log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());
                     ocrAttempted = true;
                     String ocrText = runOcrOrThrow(document);
@@ -1055,8 +1089,6 @@ public class InvoiceUploadService {
 
             if (data.type == TransactionType.EXPENSE) {
                 invoice.setTotalAmount(invoice.getTotalAmount().add(data.amount));
-            } else {
-                invoice.setTotalAmount(invoice.getTotalAmount().subtract(data.amount));
             }
             invoiceRepository.save(invoice);
 

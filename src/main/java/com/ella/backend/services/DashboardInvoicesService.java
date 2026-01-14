@@ -1,5 +1,6 @@
 package com.ella.backend.services;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -11,7 +12,9 @@ import com.ella.backend.dto.dashboard.InvoiceSummaryDTO;
 import com.ella.backend.entities.Invoice;
 import com.ella.backend.entities.Person;
 import com.ella.backend.enums.InvoiceStatus;
+import com.ella.backend.enums.TransactionType;
 import com.ella.backend.exceptions.ResourceNotFoundException;
+import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
 import com.ella.backend.repositories.PersonRepository;
 
@@ -25,6 +28,7 @@ public class DashboardInvoicesService {
 
     private final PersonRepository personRepository;
     private final InvoiceRepository invoiceRepository;
+    private final InstallmentRepository installmentRepository;
 
     public List<InvoiceSummaryDTO> getInvoices(String personId, int year, int month) {
         UUID personUuid = UUID.fromString(personId);
@@ -36,7 +40,13 @@ public class DashboardInvoicesService {
         if (log.isInfoEnabled()) {
             List<String> sample = invoices.stream()
                 .limit(5)
-                .map(inv -> String.format("%s|%s/%s|due=%s|total=%s", inv.getId(), inv.getMonth(), inv.getYear(), inv.getDueDate(), inv.getTotalAmount()))
+                .map(inv -> String.format(
+                    "%s|%s/%s|due=%s|total(expenseOnly)=%s",
+                    inv.getId(),
+                    inv.getMonth(),
+                    inv.getYear(),
+                    inv.getDueDate(),
+                    calculateInvoiceExpenseTotal(inv)))
                 .toList();
             log.info("[DashboardInvoicesService] personId={} month/year={}/{} invoices={} samples={}",
                 personId, month, year, invoices.size(), sample);
@@ -70,7 +80,7 @@ public class DashboardInvoicesService {
                             .creditCardBrand(inv.getCard().getBrand())
                             .creditCardLastFourDigits(inv.getCard().getLastFourDigits())
                             .personName(holderName)
-                            .totalAmount(inv.getTotalAmount())
+                            .totalAmount(calculateInvoiceExpenseTotal(inv))
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)
                         .isPaid(isPaid)
@@ -78,5 +88,20 @@ public class DashboardInvoicesService {
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    private BigDecimal calculateInvoiceExpenseTotal(Invoice invoice) {
+        if (invoice == null) return BigDecimal.ZERO;
+        try {
+            return installmentRepository.findByInvoice(invoice).stream()
+                    .filter(inst -> inst != null && inst.getTransaction() != null)
+                    .filter(inst -> inst.getTransaction().getType() == TransactionType.EXPENSE)
+                    .map(inst -> inst.getAmount())
+                    .filter(a -> a != null)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        } catch (Exception e) {
+            // fallback para não quebrar o endpoint
+            return invoice.getTotalAmount() != null ? invoice.getTotalAmount() : BigDecimal.ZERO;
+        }
     }
 }

@@ -42,6 +42,7 @@ import com.ella.backend.mappers.FinancialTransactionMapper;
 import com.ella.backend.repositories.CompanyRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.GoalRepository;
+import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
 import com.ella.backend.repositories.PersonRepository;
 
@@ -58,6 +59,7 @@ public class DashboardService {
     private final FinancialTransactionRepository financialTransactionRepository;
     private final GoalRepository goalRepository;
     private final InvoiceRepository invoiceRepository;
+        private final InstallmentRepository installmentRepository;
 
     public DashboardResponseDTO buildQuickDashboard(String personId) {
         logger.info("[Dashboard] 🔄 buildQuickDashboard iniciado para personId: {}", personId);
@@ -323,7 +325,7 @@ public class DashboardService {
                             .creditCardBrand(inv.getCard().getBrand())
                             .creditCardLastFourDigits(inv.getCard().getLastFourDigits())
                             .personName(holderName)
-                            .totalAmount(inv.getTotalAmount())
+                                                        .totalAmount(calculateInvoiceExpenseTotal(inv))
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)
                             .isPaid(isPaid)
@@ -332,6 +334,20 @@ public class DashboardService {
                 })
                 .toList();
     }
+
+        private BigDecimal calculateInvoiceExpenseTotal(Invoice invoice) {
+                if (invoice == null) return BigDecimal.ZERO;
+                try {
+                        return installmentRepository.findByInvoice(invoice).stream()
+                                        .filter(inst -> inst != null && inst.getTransaction() != null)
+                                        .filter(inst -> inst.getTransaction().getType() == TransactionType.EXPENSE)
+                                        .map(inst -> inst.getAmount())
+                                        .filter(Objects::nonNull)
+                                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                } catch (Exception e) {
+                        return invoice.getTotalAmount() != null ? invoice.getTotalAmount() : BigDecimal.ZERO;
+                }
+        }
 
     // ================== BLOCO EMPRESAS ==================
 
