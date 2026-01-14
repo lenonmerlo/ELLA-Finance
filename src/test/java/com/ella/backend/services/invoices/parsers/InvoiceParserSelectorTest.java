@@ -8,6 +8,28 @@ import org.junit.jupiter.api.Test;
 class InvoiceParserSelectorTest {
 
     @Test
+    void selectsItauForItauTextEvenIfSantanderPatternsCouldMatchTotalToPay() {
+        String text = String.join("\n",
+                "Banco Itaú",
+                "Itaucard",
+                "Total a Pagar R$ 3.692,62 Vencimento 22/12/2025",
+                "",
+                "Pagamentos efetuados",
+                "21/11/2025 PAGAMENTO EFETUADO -100,00",
+                "",
+                "Lançamentos: compras e saques",
+                "17/11 UBER TRIP 18,40"
+        );
+
+        InvoiceParserFactory factory = new InvoiceParserFactory();
+        InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
+
+        assertEquals("ItauInvoiceParser", selection.chosen().parser().getClass().getSimpleName());
+        assertTrue(selection.chosen().applicable());
+        assertTrue(selection.chosen().txCount() > 0);
+    }
+
+    @Test
     void selectsBradescoForBradescoTextEvenThoughMercadoPagoRegexCouldMatchLines() {
         String text = String.join("\n",
                 "BRADESCO",

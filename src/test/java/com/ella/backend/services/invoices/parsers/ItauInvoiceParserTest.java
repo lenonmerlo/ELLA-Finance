@@ -12,6 +12,96 @@ import org.junit.jupiter.api.Test;
 class ItauInvoiceParserTest {
 
     @Test
+    void prefersCurrentInvoiceDueDateOverNextInvoiceDates() {
+        String text = String.join("\n",
+                "ITAU",
+                "Resumo da fatura",
+                "Total desta fatura",
+                "Pagamento mínimo",
+                "",
+                // due date for the current invoice (what we want)
+                "Vencimento: 21/11/2025",
+                "",
+                // next cycle noise that should not win
+                "Próxima fatura: 22/12/2025",
+                "Próxima postagem: 22/12/2025",
+                "",
+                "Pagamentos efetuados",
+                "21/11/2025 PAGAMENTO EFETUADO -100,00",
+                "",
+                "Lançamentos: compras e saques",
+                "17/11 UBER TRIP 18,40"
+        );
+
+        ItauInvoiceParser parser = new ItauInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        LocalDate dueDate = parser.extractDueDate(text);
+        assertEquals(LocalDate.of(2025, 11, 21), dueDate);
+    }
+
+    @Test
+    void doesNotIncludeInstallmentsFutureSectionTransactions() {
+        String text = String.join("\n",
+                "Banco Itaú",
+                "Resumo da fatura",
+                "Total desta fatura",
+                "Pagamento minimo",
+            "Vencimento: 21/11/2025",
+                "",
+                "Pagamentos efetuados",
+                "21/11/2025 PAGAMENTO EFETUADO -100,00",
+                "",
+                "Lançamentos: compras e saques",
+                "17/11 UBER TRIP 18,40",
+                "18/11 IFD*IFD*COMERCIO DE 120,90",
+                "",
+                "Compras parceladas - próximas faturas",
+                "22/01 BT SHOP VITORI 11/12 482,00",
+                "23/01 OUTRA LOJA 01/05 100,00",
+                "",
+                "Encargos cobrados nesta fatura"
+        );
+
+        ItauInvoiceParser parser = new ItauInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+        // 1 pagamento + 2 compras atuais; NÃO deve incluir próximas faturas
+        assertEquals(3, txs.size());
+    }
+
+    @Test
+    void infersTransactionYearFromDocumentDates() {
+        String text = String.join("\n",
+                "Banco Itaú",
+                "Resumo da fatura",
+                "Total desta fatura",
+                "Pagamento minimo",
+                "Vencimento: 21/11/2025",
+                "",
+                "Pagamentos efetuados",
+                "21/11/2025 PAGAMENTO EFETUADO -100,00",
+                "",
+                "Lançamentos: compras e saques",
+                "17/11 UBER TRIP 18,40"
+        );
+
+        ItauInvoiceParser parser = new ItauInvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+
+        // Find the UBER row and ensure the year was inferred as 2025 (not "current year").
+        TransactionData uber = txs.stream()
+                .filter(t -> t != null && t.description != null && t.description.toLowerCase().contains("uber"))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(uber);
+        assertEquals(LocalDate.of(2025, 11, 17), uber.date);
+    }
+
+    @Test
     void extractsDueDateFromVencAbbrevWithoutYearByInferringYearFromOtherDates() {
         String text = String.join("\n",
                 "ITAU",

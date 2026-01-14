@@ -9,10 +9,15 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.enums.TransactionType;
 
 public class ItauInvoiceParser implements InvoiceParserStrategy {
+
+    private static final Logger log = LoggerFactory.getLogger(ItauInvoiceParser.class);
 
     @Override
     public boolean isApplicable(String text) {
@@ -21,18 +26,54 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
                 .replaceAll("\\s+", " ")
                 .trim();
 
-        // Evita falso-positivo em PDFs de outros bancos que mencionem "Itaú" em algum trecho.
-        // O layout do Itaú normalmente contém as seções abaixo; usamos isso como âncora.
-        boolean hasItauMarkers = n.contains("itau personnalite") || n.contains("banco itau") || n.contains("itaucard") || n.contains("itau");
-        boolean hasPayments = n.contains("pagamentos efetuados");
-        boolean hasPurchasesSection = n.contains("lancamentos: compras e saques") || (n.contains("lancamentos") && n.contains("compras e saques"));
-        boolean hasSectionMarkers = hasPayments && hasPurchasesSection;
+        // Detecção robusta do Itaú:
+        // - Não basta "itau" solto: exige marcadores e/ou âncoras de layout.
+        boolean hasItauMention = n.contains("itau");
+        if (!hasItauMention) return false;
 
-        // Alguns layouts (ou extrações) não preservam os títulos de seção acima, mas mantêm o resumo.
-        boolean hasSummaryMarkers = (n.contains("resumo da fatura") && n.contains("total desta fatura"))
+        boolean hasItauMarkers = n.contains("banco itau")
+            || n.contains("itau unibanco")
+            || n.contains("itaucard")
+            || n.contains("itau personnalite")
+            || n.contains("itau personalite")
+            || n.contains("itau uniclass")
+            || n.contains("itauuniclass")
+            || n.contains("limite total de credito")
+            || n.contains("limite disponivel");
+
+        boolean hasPayments = n.contains("pagamentos efetuados")
+            || n.contains("pagamento efetuado")
+            || (n.contains("pagamentos") && (n.contains("efetuad") || n.contains("realiz")));
+
+        boolean hasPurchasesSection = n.contains("lancamentos: compras e saques")
+            || n.contains("lancamentos no cartao")
+            || (n.contains("lancamentos") && (n.contains("compras") || n.contains("saques")));
+
+        boolean hasSummaryMarkers = (n.contains("resumo da fatura") || n.contains("resumo da fatura em"))
+            && (n.contains("total desta fatura") || n.contains("total da fatura") || n.contains("o total da sua fatura"))
             && (n.contains("pagamento minimo") || n.contains("pagamento mínimo"));
 
-        return hasItauMarkers && (hasSectionMarkers || hasSummaryMarkers);
+        boolean hasInstallmentSection = n.contains("compras parceladas")
+            && (n.contains("proximas faturas") || n.contains("proxima fatura") || (n.contains("proxim") && n.contains("fatura")));
+
+        // Padrão de linha típico do Itaú: dd/MM descrição [NN/TT] valor
+        boolean hasItauLinePattern = false;
+        try {
+            String raw = text == null ? "" : text;
+            hasItauLinePattern = Pattern.compile(
+                "(?is)\\b\\d{2}/\\d{2}\\s+[A-Z0-9][A-Z0-9\\s\\*\\-\\./]{3,}\\s+(?:\\d{2}/\\d{2}\\s+)?\\d+[\\.,]\\d{2}\\b")
+                .matcher(raw)
+                .find();
+        } catch (Exception ignored) {
+            hasItauLinePattern = false;
+        }
+
+        boolean hasSectionMarkers = hasPayments && hasPurchasesSection;
+
+        return hasSectionMarkers
+            || (hasItauMarkers && hasSummaryMarkers)
+            || (hasItauMarkers && hasItauLinePattern)
+            || (hasSummaryMarkers && hasInstallmentSection);
     }
 
     @Override
@@ -40,6 +81,107 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
         if (text == null || text.isBlank()) return null;
         String normalizedText = normalizeNumericDates(text);
         Integer inferredYear = inferYearFromText(normalizedText);
+
+        // Em alguns PDFs do Itaú existem múltiplas datas no cabeçalho (ex.: próxima fatura/postagem).
+        // Estratégia: coletar candidatos e escolher o mais provável (perto do "total da fatura" e longe de "próxima").
+        String search = normalizeForSearch(normalizedText).replaceAll("\\s+", " ");
+
+        record Candidate(LocalDate date, int score) {}
+        Candidate best = null;
+
+        List<String> summaryAnchors = List.of(
+                "o total da sua fatura",
+                "total desta fatura",
+                "total da fatura",
+                "resumo da fatura"
+        );
+
+        java.util.function.BiFunction<Integer, Integer, Integer> scoreAt = (start, end) -> {
+            int s = 0;
+            int from = Math.max(0, start - 140);
+            int to = Math.min(search.length(), end + 140);
+            String ctx = search.substring(from, to);
+
+            // Penaliza contexto de "próxima" (próxima fatura/postagem etc)
+            if (ctx.contains("proxim") || ctx.contains("postag") || ctx.contains("process") || ctx.contains("entrada")) {
+                s -= 50;
+            }
+            // Bonus se estiver próximo do resumo/total
+            for (String anchor : summaryAnchors) {
+                int idx = search.lastIndexOf(anchor, start);
+                if (idx >= 0 && (start - idx) <= 420) {
+                    s += 80;
+                    break;
+                }
+            }
+            // Bonus se for "com vencimento em"
+            if (ctx.contains("com vencimento em")) {
+                s += 30;
+            }
+            return s;
+        };
+
+        // 0) Procurar todas ocorrências de "com vencimento em" e escolher a melhor.
+        Matcher prio = Pattern.compile(
+                "(?is)com\\s+vencimento\\s+em\\s*[:]?\\s*(\\d{2})\\s*[\\./-]\\s*(\\d{2})\\s*[\\./-]\\s*(\\d{4})")
+                .matcher(normalizedText);
+        while (prio.find()) {
+            LocalDate d = safeDate(parseIntOrNull(prio.group(3)), parseIntOrNull(prio.group(2)), parseIntOrNull(prio.group(1)));
+            if (d == null) continue;
+            int score = scoreAt.apply(prio.start(), prio.end());
+            if (best == null || score > best.score) {
+                best = new Candidate(d, score);
+            }
+        }
+
+        // 1) Fallback: procurar candidatos de vencimento/vcto/data de vencimento e escolher a melhor.
+        Matcher mAny = Pattern.compile(
+                "(?is)\\b(venc(?:imento)?|vct(?:o)?|data\\s+de\\s+vencimento)\\b[^\\d]{0,60}(\\d{2})\\s*[\\./-]\\s*(\\d{2})(?:\\s*[\\./-]\\s*(\\d{4}))?")
+                .matcher(normalizedText);
+        while (mAny.find()) {
+            Integer day = parseIntOrNull(mAny.group(2));
+            Integer month = parseIntOrNull(mAny.group(3));
+            Integer year = parseIntOrNull(mAny.group(4));
+            if (year == null) year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
+            LocalDate d = safeDate(year, month, day);
+            if (d == null) continue;
+            int score = scoreAt.apply(mAny.start(), mAny.end());
+            if (best == null || score > best.score) {
+                best = new Candidate(d, score);
+            }
+        }
+
+        // 2) Fallback extra (quando o bloco "Com vencimento em" é imagem e não sai no PDFBox):
+        // Em faturas com débito automático, o "Pagamento efetuado em DD/MM/YYYY" costuma coincidir com o vencimento.
+        // Ex.: "Pagamento efetuado em 21/11/2025".
+        boolean autoDebitInvoice = search.contains("debito automatic") || search.contains("debito automatico");
+        Matcher pay = Pattern.compile("(?is)pagamento\\s+efetuado\\s+em\\s*(\\d{2})\\s*/\\s*(\\d{2})\\s*/\\s*(\\d{4})")
+                .matcher(normalizedText);
+        while (pay.find()) {
+            // Só usa o pagamento como vencimento quando:
+            // - a fatura indica débito automático (heurística forte), ou
+            // - não encontramos nenhum candidato de vencimento (último recurso).
+            if (!autoDebitInvoice && best != null) {
+                continue;
+            }
+
+            LocalDate d = safeDate(parseIntOrNull(pay.group(3)), parseIntOrNull(pay.group(2)), parseIntOrNull(pay.group(1)));
+            if (d == null) continue;
+
+            int score = scoreAt.apply(pay.start(), pay.end());
+            if (autoDebitInvoice) {
+                score += 120;
+            }
+
+            if (best == null || score > best.score) {
+                best = new Candidate(d, score);
+            }
+        }
+
+        if (best != null) {
+            log.debug("[ItauParser] Due date selected: {} (score={})", best.date, best.score);
+            return best.date;
+        }
 
         // PRIORITÁRIO (fatura atual): "Com vencimento em: DD/MM/YYYY".
         // Evita falso positivo do bloco de processamento ("Vencimento: 14/01/2026") quando ambos existem.
@@ -155,40 +297,133 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
 
         List<TransactionData> transactions = new ArrayList<>();
 
+        // Important: Itaú PDFs often omit the year in transaction rows (dd/MM or dd MMM).
+        // We infer the year from any dd/MM/yyyy present in the document (usually the due date).
+        Integer inferredYear = inferYearFromText(normalizeNumericDates(text));
+
         enum PdfSection { NONE, PAYMENTS, PURCHASES, INSTALLMENTS_FUTURE }
         PdfSection section = PdfSection.NONE;
+        boolean stopParsing = false;
+
+        record PendingRow(String dateStr, String description) {
+        }
+        PendingRow pending = null;
+
+        Pattern dateAndDescPattern = Pattern.compile(
+            "^(\\d{2}\\s+[A-Za-z]{3}|\\d{2}/\\d{2}(?:/\\d{4})?)\\s+(.+?)\\s*$");
+        Pattern amountOnlyPattern = Pattern.compile("^-?[0-9][0-9\\.,]*$");
 
         String[] lines = text.split("\\r?\\n");
         for (String line : lines) {
+            if (stopParsing) break;
             String sectionLine = normalizeSectionLine(line);
 
             if (sectionLine.contains("pagamentos efetuados")) {
                 section = PdfSection.PAYMENTS;
+                pending = null;
                 continue;
             }
-            if (sectionLine.contains("lancamentos: compras e saques")) {
+            if (sectionLine.contains("lancamentos: compras e saques") || sectionLine.contains("lancamentos no cartao")) {
                 section = PdfSection.PURCHASES;
+                pending = null;
                 continue;
             }
+
+            // Se o PDF não expõe a linha "Compras parceladas - próximas faturas" via PDFBox,
+            // ainda podemos parar no subtotal "Total dos lançamentos atuais" (que encerra a fatura atual).
+            if (section == PdfSection.PURCHASES && (sectionLine.contains("total dos lancamentos atuais")
+                    || sectionLine.contains("total dos lancamentos"))) {
+                stopParsing = true;
+                pending = null;
+                continue;
+            }
+
             if (sectionLine.contains("compras parceladas") || sectionLine.contains("proximas faturas") || sectionLine.contains("proxima fatura")) {
                 section = PdfSection.INSTALLMENTS_FUTURE;
+                // Importante: nada após "próximas faturas" pertence à fatura atual.
+                stopParsing = true;
+                pending = null;
                 continue;
             }
             if (sectionLine.contains("encargos cobrados nesta fatura")
                     || sectionLine.contains("novo teto")
                     || sectionLine.contains("credito rotativo")
                     || sectionLine.contains("limites de credito")
+                    || sectionLine.contains("juros do rotativo")
+                    || sectionLine.contains("juros de mora")
+                    || sectionLine.contains("fique atento")
                     || sectionLine.startsWith("sac")) {
                 section = PdfSection.NONE;
+                pending = null;
                 continue;
             }
 
             boolean shouldParse = (section == PdfSection.PAYMENTS || section == PdfSection.PURCHASES);
             if (!shouldParse) continue;
 
-            TransactionData data = parsePdfLine(line);
+            String raw = line == null ? "" : line.trim();
+            if (raw.isEmpty()) continue;
+
+            // 1) Tenta parsear linha completa (date + desc + amount)
+            TransactionData data = parsePdfLine(raw, inferredYear);
             if (data != null) {
+                pending = null;
                 transactions.add(data);
+                continue;
+            }
+
+            // 2) Se a tabela vier com valor em linha separada, junta (date+desc) + (amount)
+            if (pending != null && amountOnlyPattern.matcher(raw.replace("R$", "").trim()).matches()) {
+                String amountStr = raw.replace("R$", "").trim();
+                amountStr = amountStr.replace(".", "").replace(",", ".");
+
+                try {
+                    BigDecimal amount = new BigDecimal(amountStr);
+                    LocalDate date = parseDate(pending.dateStr, inferredYear);
+
+                    TransactionType type;
+                    if (amount.compareTo(BigDecimal.ZERO) < 0) {
+                        type = TransactionType.INCOME;
+                    } else {
+                        String d = pending.description == null ? "" : pending.description.toLowerCase();
+                        if (d.contains("pagamento") || d.contains("payment")) {
+                            type = TransactionType.INCOME;
+                        } else {
+                            type = TransactionType.EXPENSE;
+                        }
+                    }
+
+                    String category = MerchantCategoryMapper.categorize(pending.description, type);
+                    TransactionScope scope = inferScope(pending.description, null);
+
+                    TransactionData joined = new TransactionData(
+                            pending.description,
+                            amount.abs(),
+                            type,
+                            category,
+                            date,
+                            null,
+                            scope);
+                    applyInstallmentInfo(joined, extractInstallmentInfo(pending.description));
+                    transactions.add(joined);
+                } catch (Exception ignored) {
+                    // ignore
+                }
+
+                pending = null;
+                continue;
+            }
+
+            // 3) Se a linha tiver date+desc (sem amount), guarda e tenta completar na próxima linha
+            Matcher md = dateAndDescPattern.matcher(raw);
+            if (md.find()) {
+                String dateStr = md.group(1);
+                String desc = md.group(2);
+                // Evita capturar cabeçalhos/linhas semânticas
+                String nDesc = normalizeSectionLine(desc);
+                if (!nDesc.startsWith("estabelecimento") && !nDesc.startsWith("valor") && !nDesc.startsWith("data")) {
+                    pending = new PendingRow(dateStr, desc);
+                }
             }
         }
 
@@ -211,7 +446,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
         return normalized.replaceAll("\\s+", " ");
     }
 
-    private TransactionData parsePdfLine(String line) {
+    private TransactionData parsePdfLine(String line, Integer inferredYear) {
         try {
             if (line == null) return null;
             line = line.trim();
@@ -225,7 +460,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
             String desc = matcher.group(2);
             String amountStr = matcher.group(3);
 
-            LocalDate date = parseDate(dateStr);
+            LocalDate date = parseDate(dateStr, inferredYear);
 
             amountStr = amountStr.replace(".", "").replace(",", ".");
             BigDecimal amount = new BigDecimal(amountStr);
@@ -288,7 +523,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
 
     private record InstallmentInfo(Integer number, Integer total) {}
 
-    private LocalDate parseDate(String dateStr) {
+    private LocalDate parseDate(String dateStr, Integer inferredYear) {
         try {
             if (dateStr == null) return LocalDate.now();
 
@@ -312,7 +547,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
                     default -> LocalDate.now().getMonthValue();
                 };
 
-                int year = LocalDate.now().getYear();
+                int year = inferredYear != null ? inferredYear : LocalDate.now().getYear();
                 LocalDate parsed = LocalDate.of(year, month, day);
                 if (parsed.isAfter(LocalDate.now().plusMonths(1))) {
                     return parsed.minusYears(1);
@@ -329,7 +564,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
             if (dateStr.matches("\\d{2}/\\d{2}")) {
                 LocalDate parsed = LocalDate.parse(dateStr, new java.time.format.DateTimeFormatterBuilder()
                         .appendPattern("dd/MM")
-                        .parseDefaulting(java.time.temporal.ChronoField.YEAR, LocalDate.now().getYear())
+                        .parseDefaulting(java.time.temporal.ChronoField.YEAR, inferredYear != null ? inferredYear : LocalDate.now().getYear())
                         .toFormatter());
 
                 if (parsed.isAfter(LocalDate.now().plusMonths(1))) {

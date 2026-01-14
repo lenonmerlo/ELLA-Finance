@@ -13,4 +13,15 @@ public class PdfTextExtractor {
         PDFTextStripper stripper = new PDFTextStripper();
         return stripper.getText(document);
     }
+
+    /**
+     * Some bank PDFs (notably statements with multiple columns/tables) require positional sorting
+     * to preserve a readable row order (date/merchant/amount).
+     */
+    public String extractTextSorted(PDDocument document) throws IOException {
+        PDFTextStripper stripper = new PDFTextStripper();
+        stripper.setSortByPosition(true);
+        stripper.setShouldSeparateByBeads(true);
+        return stripper.getText(document);
+    }
 }

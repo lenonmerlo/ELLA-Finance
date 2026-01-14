@@ -47,6 +47,7 @@ import com.ella.backend.services.invoices.parsers.C6InvoiceParser;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.InvoiceParserSelector;
 import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
+import com.ella.backend.services.invoices.parsers.ItauInvoiceParser;
 import com.ella.backend.services.invoices.parsers.TransactionData;
 import com.ella.backend.services.ocr.OcrException;
 import com.ella.backend.services.ocr.OcrProperties;
@@ -307,21 +308,22 @@ public class InvoiceUploadService {
             } catch (Exception ignored) {
                 baselineParser = null;
             }
-            boolean skipOcrForC6 = baselineParser instanceof C6InvoiceParser;
+            boolean skipOcrForItauOrC6 = baselineParser instanceof ItauInvoiceParser
+                    || baselineParser instanceof C6InvoiceParser;
 
             logExtractedTextIfEnabled("PDFBox", text);
             logDueDateSignalsIfEnabled("PDFBox", text);
 
             boolean ocrAttempted = false;
             if (shouldAttemptOcr(text)) {
-                if (skipOcrForC6) {
-                    log.info("[InvoiceUpload][OCR] Skipping OCR for C6 (disabled temporarily)");
+                if (skipOcrForItauOrC6) {
+                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6 (disabled temporarily)");
                 } else {
-                text = runOcrOrThrow(document);
-                ocrAttempted = true;
+                    text = runOcrOrThrow(document);
+                    ocrAttempted = true;
 
-                logExtractedTextIfEnabled("OCR", text);
-                logDueDateSignalsIfEnabled("OCR", text);
+                    logExtractedTextIfEnabled("OCR", text);
+                    logDueDateSignalsIfEnabled("OCR", text);
                 }
             }
 
@@ -351,7 +353,7 @@ public class InvoiceUploadService {
                 if (transactions != null && !transactions.isEmpty()) {
                     BigDecimal expectedTotal = extractInvoiceExpectedTotal(text);
                     if (expectedTotal != null && expectedTotal.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal extractedTotal = sumAbsoluteAmounts(transactions);
+                        BigDecimal extractedTotal = sumExpenseAmounts(transactions);
                         BigDecimal pct = extractedTotal.compareTo(BigDecimal.ZERO) > 0
                                 ? extractedTotal.multiply(BigDecimal.valueOf(100))
                                     .divide(expectedTotal, 2, java.math.RoundingMode.HALF_UP)
@@ -363,8 +365,8 @@ public class InvoiceUploadService {
                 }
 
                 if ((transactions == null || transactions.isEmpty()) && !ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForC6) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for C6 (disabled temporarily)");
+                    if (skipOcrForItauOrC6) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6 (disabled temporarily)");
                     } else {
                         String ocrText = runOcrOrThrow(document);
                         transactions = parsePdfText(ocrText, dueDateFromRequest);
@@ -376,8 +378,8 @@ public class InvoiceUploadService {
                 // If we detect low-quality descriptions (or many missing purchase dates), prefer OCR when enabled.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryWithOcrForQuality(transactions)) {
-                    if (skipOcrForC6) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for C6 (disabled temporarily)");
+                    if (skipOcrForItauOrC6) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6 (disabled temporarily)");
                     } else {
                         log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
                         String ocrText = runOcrOrThrow(document);
@@ -394,8 +396,29 @@ public class InvoiceUploadService {
                 // This is intentionally conservative to avoid triggering OCR for other banks/layouts.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryDueToMissingTransactions(transactions, text)) {
-                    if (skipOcrForC6) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for C6 (disabled temporarily)");
+                    if (skipOcrForItauOrC6) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6 (disabled temporarily)");
+
+                        // Non-OCR fallback: retry PDFBox extraction with positional sorting.
+                        try {
+                            String sortedText = pdfTextExtractor.extractTextSorted(document);
+                            if (sortedText != null && !sortedText.isBlank()) {
+                                List<TransactionData> sortedTransactions = parsePdfText(sortedText, dueDateFromRequest);
+
+                                BigDecimal expected = extractInvoiceExpectedTotal(text);
+                                if (expected == null) {
+                                    expected = extractInvoiceExpectedTotal(sortedText);
+                                }
+
+                                if (expected != null
+                                        && isOcrResultBetterForMissingTransactions(sortedTransactions, transactions, expected)) {
+                                    logInvoiceTotalValidation("PDFBox-sorted", sortedText, sortedTransactions);
+                                    return sortedTransactions;
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.info("[InvoiceUpload][PDFBox] Sorted extraction retry failed: {}", e.getMessage());
+                        }
                     } else {
                         log.info("[OCR] Trigger: possible missing transactions (total mismatch); retrying once with OCR...");
                         String ocrText = runOcrOrThrow(document);
@@ -420,8 +443,8 @@ public class InvoiceUploadService {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
                 // Rationale: many PDFs have selectable text but the due date (or table) is rendered as an image.
                 if (!ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForC6) {
-                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for C6 (disabled temporarily): {}", e.getMessage());
+                    if (skipOcrForItauOrC6) {
+                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6 (disabled temporarily): {}", e.getMessage());
                         throw e;
                     }
                     log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());
@@ -449,7 +472,7 @@ public class InvoiceUploadService {
             BigDecimal expectedTotal = extractInvoiceExpectedTotal(text);
             if (expectedTotal == null || expectedTotal.compareTo(BigDecimal.ZERO) <= 0) return;
 
-            BigDecimal extractedTotal = sumAbsoluteAmounts(transactions);
+            BigDecimal extractedTotal = sumExpenseAmounts(transactions);
             BigDecimal difference = extractedTotal.subtract(expectedTotal).abs();
 
             log.info("[VALIDATION][{}] Total Extraído: R$ {}, Total Esperado: R$ {}, Diferença: R$ {}",
@@ -514,7 +537,7 @@ public class InvoiceUploadService {
             return false;
         }
 
-        BigDecimal totalExtracted = sumAbsoluteAmounts(transactions);
+        BigDecimal totalExtracted = sumExpenseAmounts(transactions);
         if (totalExtracted.compareTo(BigDecimal.ZERO) <= 0) return false;
 
         BigDecimal threshold = expectedTotal.multiply(MISSING_TX_RATIO_THRESHOLD);
@@ -538,8 +561,8 @@ public class InvoiceUploadService {
     ) {
         if (expectedTotal == null || expectedTotal.compareTo(BigDecimal.ZERO) <= 0) return false;
 
-        BigDecimal origTotal = sumAbsoluteAmounts(originalTransactions);
-        BigDecimal ocrTotal = sumAbsoluteAmounts(ocrTransactions);
+        BigDecimal origTotal = sumExpenseAmounts(originalTransactions);
+        BigDecimal ocrTotal = sumExpenseAmounts(ocrTransactions);
 
         BigDecimal origDiff = expectedTotal.subtract(origTotal).abs();
         BigDecimal ocrDiff = expectedTotal.subtract(ocrTotal).abs();
@@ -570,6 +593,17 @@ public class InvoiceUploadService {
         BigDecimal sum = BigDecimal.ZERO;
         for (TransactionData tx : transactions) {
             if (tx == null || tx.amount == null) continue;
+            sum = sum.add(tx.amount.abs());
+        }
+        return sum;
+    }
+
+    private static BigDecimal sumExpenseAmounts(List<TransactionData> transactions) {
+        if (transactions == null || transactions.isEmpty()) return BigDecimal.ZERO;
+        BigDecimal sum = BigDecimal.ZERO;
+        for (TransactionData tx : transactions) {
+            if (tx == null || tx.amount == null) continue;
+            if (tx.type != null && tx.type != TransactionType.EXPENSE) continue;
             sum = sum.add(tx.amount.abs());
         }
         return sum;
@@ -865,6 +899,29 @@ public class InvoiceUploadService {
         for (TransactionData tx : transactions) {
             if (tx == null) continue;
             tx.setDueDate(dueDate);
+        }
+
+        // Itaú PDFs sometimes have the "próximas faturas" section extracted out-of-order by PDFBox.
+        // As a defensive measure, drop EXPENSE rows that are clearly after the due date.
+        if (parser instanceof ItauInvoiceParser && dueDate != null && transactions != null && !transactions.isEmpty()) {
+            int before = transactions.size();
+            int dropped = 0;
+            List<TransactionData> filtered = new ArrayList<>(transactions.size());
+            for (TransactionData tx : transactions) {
+                if (tx == null) {
+                    filtered.add(null);
+                    continue;
+                }
+                if (tx.type == TransactionType.EXPENSE && tx.date != null && tx.date.isAfter(dueDate)) {
+                    dropped++;
+                    continue;
+                }
+                filtered.add(tx);
+            }
+            if (dropped > 0) {
+                log.info("[InvoiceUpload][Itau] Dropped {} EXPENSE rows after dueDate={} ({} -> {})", dropped, dueDate, before, before - dropped);
+            }
+            transactions = filtered;
         }
 
         int garbled = 0;
