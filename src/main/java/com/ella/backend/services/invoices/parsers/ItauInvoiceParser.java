@@ -151,33 +151,6 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
             }
         }
 
-        // 2) Fallback extra (quando o bloco "Com vencimento em" é imagem e não sai no PDFBox):
-        // Em faturas com débito automático, o "Pagamento efetuado em DD/MM/YYYY" costuma coincidir com o vencimento.
-        // Ex.: "Pagamento efetuado em 21/11/2025".
-        boolean autoDebitInvoice = search.contains("debito automatic") || search.contains("debito automatico");
-        Matcher pay = Pattern.compile("(?is)pagamento\\s+efetuado\\s+em\\s*(\\d{2})\\s*/\\s*(\\d{2})\\s*/\\s*(\\d{4})")
-                .matcher(normalizedText);
-        while (pay.find()) {
-            // Só usa o pagamento como vencimento quando:
-            // - a fatura indica débito automático (heurística forte), ou
-            // - não encontramos nenhum candidato de vencimento (último recurso).
-            if (!autoDebitInvoice && best != null) {
-                continue;
-            }
-
-            LocalDate d = safeDate(parseIntOrNull(pay.group(3)), parseIntOrNull(pay.group(2)), parseIntOrNull(pay.group(1)));
-            if (d == null) continue;
-
-            int score = scoreAt.apply(pay.start(), pay.end());
-            if (autoDebitInvoice) {
-                score += 120;
-            }
-
-            if (best == null || score > best.score) {
-                best = new Candidate(d, score);
-            }
-        }
-
         if (best != null) {
             log.debug("[ItauParser] Due date selected: {} (score={})", best.date, best.score);
             return best.date;
