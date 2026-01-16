@@ -6,10 +6,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,6 +40,8 @@ import com.ella.backend.repositories.InvoiceRepository;
 import com.ella.backend.services.invoices.extraction.ExtractionPipeline;
 import com.ella.backend.services.invoices.extraction.ExtractionResult;
 import com.ella.backend.services.invoices.extraction.InvoiceExtractionHeuristics;
+import com.ella.backend.services.invoices.parsers.ParseResult;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -78,7 +78,7 @@ public class InvoiceUploadService {
 
                 // Nubank: duplicatas estritamente idênticas podem ser legítimas (ex.: duas compras iguais no mesmo dia).
                 // Portanto, não removemos "exact duplicates" automaticamente para esse banco.
-                boolean allowExactDuplicates = parsed.baselineParser() instanceof com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
+                boolean allowExactDuplicates = isNubank(parsed);
                 transactions = deduplicateTransactions(transactions, allowExactDuplicates);
             } else {
                 transactions = parseCsv(is);
@@ -108,8 +108,7 @@ public class InvoiceUploadService {
         }
     }
 
-<<<<<<< HEAD
-    private record ParsedPdfResult(List<TransactionData> transactions, InvoiceParserStrategy baselineParser) {}
+    private record ParsedPdfResult(List<TransactionData> transactions, ParseResult parseResult, String rawText) {}
 
     private List<TransactionData> deduplicateTransactions(List<TransactionData> transactions) {
         return deduplicateTransactions(transactions, false);
@@ -178,12 +177,11 @@ public class InvoiceUploadService {
 
         String desc = normalizeKeyField(tx.description);
         String cardName = normalizeKeyField(tx.cardName);
-        String cardholder = normalizeKeyField(tx.cardholderName);
 
         String instN = tx.installmentNumber != null ? tx.installmentNumber.toString() : "";
         String instT = tx.installmentTotal != null ? tx.installmentTotal.toString() : "";
 
-        return purchaseDate + "|" + dueDate + "|" + amount + "|" + type + "|" + scope + "|" + desc + "|" + cardName + "|" + cardholder + "|" + instN + "/" + instT;
+        return purchaseDate + "|" + dueDate + "|" + amount + "|" + type + "|" + scope + "|" + desc + "|" + cardName + "|" + instN + "/" + instT;
     }
 
     private static String normalizeKeyField(String value) {
@@ -194,47 +192,21 @@ public class InvoiceUploadService {
         return v;
     }
 
-=======
->>>>>>> 6864e9ee39fef8652a6099b3ecbc24e8860ddb9b
+    private boolean isNubank(ParsedPdfResult parsed) {
+        if (parsed == null) return false;
+
+        String bank = parsed.parseResult() != null ? parsed.parseResult().getBankName() : null;
+        if (bank != null && bank.toLowerCase(java.util.Locale.ROOT).contains("nubank")) return true;
+
+        String raw = parsed.rawText();
+        if (raw == null) return false;
+        String n = raw.toLowerCase(java.util.Locale.ROOT);
+        return n.contains("nubank") || n.contains("nu pagamentos") || n.contains("nu bank");
+    }
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public InvoiceUploadResponseDTO processInvoice(MultipartFile file, String password) {
-        String filename = file.getOriginalFilename();
-        if (filename == null) {
-            throw new IllegalArgumentException("Filename cannot be null");
-        }
-
-        boolean isPdf = filename.toLowerCase().endsWith(".pdf");
-
-        try (InputStream is = file.getInputStream()) {
-            List<TransactionData> transactions;
-            if (isPdf) {
-                transactions = parsePdf(is, password);
-            } else {
-                transactions = parseCsv(is);
-            }
-
-            if (transactions == null || transactions.isEmpty()) {
-                if (isPdf) {
-                    throw new IllegalArgumentException(
-                        (password != null && !password.isBlank()
-                            ? "Não foi possível extrair transações desse PDF mesmo com senha informada. "
-                            : "Não foi possível extrair transações desse PDF. ") +
-                            "Ele pode estar escaneado (imagem), ter restrição de extração de texto, " +
-                            "ou ter um layout ainda não suportado. " +
-                            "Tente exportar/enviar um CSV, ou um PDF com texto selecionável."
-                    );
-                }
-                throw new IllegalArgumentException(
-                        "Não encontrei transações neste arquivo. Confira se o CSV tem cabeçalho e colunas compatíveis."
-                );
-            }
-            return processTransactions(transactions, filename);
-        } catch (IllegalArgumentException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to process file", e);
-        }
+        return processInvoice(file, password, null);
     }
 
     private List<TransactionData> parseCsv(InputStream inputStream) throws IOException {
@@ -265,188 +237,10 @@ public class InvoiceUploadService {
     }
 
     private List<TransactionData> parsePdf(InputStream inputStream, String password, String dueDateOverride) throws IOException {
-<<<<<<< HEAD
         return parsePdfDetailed(inputStream, password, dueDateOverride).transactions();
     }
 
     private ParsedPdfResult parsePdfDetailed(InputStream inputStream, String password, String dueDateOverride) throws IOException {
-        forceDebugHeader("parsePdf");
-        logDebugConfigOnce("parsePdf");
-
-        LocalDate dueDateFromRequest = null;
-        if (dueDateOverride != null && !dueDateOverride.isBlank()) {
-            dueDateFromRequest = parseDueDateOverrideOrThrow(dueDateOverride);
-        }
-
-        try (PDDocument document = (password != null && !password.isBlank())
-                ? PDDocument.load(inputStream, password)
-                : PDDocument.load(inputStream)) {
-            try {
-                document.setAllSecurityToBeRemoved(true);
-            } catch (Exception ignored) {
-            }
-
-            String text = pdfTextExtractor.extractText(document);
-            text = text == null ? "" : text;
-
-            // Identifica o parser baseado no texto do PDFBox para decidir políticas específicas.
-            InvoiceParserStrategy baselineParser = null;
-            try {
-                InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(invoiceParserFactory.getParsers(), text);
-                baselineParser = selection != null && selection.chosen() != null ? selection.chosen().parser() : null;
-            } catch (Exception ignored) {
-                baselineParser = null;
-            }
-                boolean skipOcrForItauOrC6OrNubank = baselineParser instanceof ItauInvoiceParser
-                    || baselineParser instanceof C6InvoiceParser
-                    || baselineParser instanceof com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
-
-            logExtractedTextIfEnabled("PDFBox", text);
-            logDueDateSignalsIfEnabled("PDFBox", text);
-
-            boolean ocrAttempted = false;
-            if (shouldAttemptOcr(text)) {
-                if (skipOcrForItauOrC6OrNubank) {
-                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6/Nubank (disabled for these parsers)");
-                } else {
-                    text = runOcrOrThrow(document);
-                    ocrAttempted = true;
-
-                    logExtractedTextIfEnabled("OCR", text);
-                    logDueDateSignalsIfEnabled("OCR", text);
-                }
-            }
-
-            if (text.isBlank()) {
-                return new ParsedPdfResult(List.of(), baselineParser);
-            }
-
-            String classUrl;
-            try {
-                var url = InvoiceUploadService.class.getResource("InvoiceUploadService.class");
-                classUrl = url == null ? "<null>" : url.toString();
-            } catch (Exception e) {
-                classUrl = "<error:" + e.getClass().getSimpleName() + ">";
-            }
-
-            log.info("[InvoiceUpload][BUILD_MARKER={}] PDF extracted sample (classUrl={}): {}",
-                    BUILD_MARKER,
-                    classUrl,
-                    (text.length() > 500 ? text.substring(0, 500) : text));
-
-            try {
-                List<TransactionData> transactions = parsePdfText(text, dueDateFromRequest);
-
-                // Diagnostic: if the invoice total is present in the extracted text, log the comparison once.
-                // This makes it obvious whether the OCR retry is being skipped due to threshold logic,
-                // missing expected total extraction, or an early OCR attempt.
-                if (transactions != null && !transactions.isEmpty()) {
-                    BigDecimal expectedTotal = extractInvoiceExpectedTotal(text);
-                    if (expectedTotal != null && expectedTotal.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal extractedTotal = sumExpenseAmounts(transactions);
-                        BigDecimal pct = extractedTotal.compareTo(BigDecimal.ZERO) > 0
-                                ? extractedTotal.multiply(BigDecimal.valueOf(100))
-                                    .divide(expectedTotal, 2, java.math.RoundingMode.HALF_UP)
-                                : BigDecimal.ZERO;
-                        STATIC_LOG.info(
-                                "[InvoiceUpload][OCR] Pre-check: ocrAttempted={} txCount={} extracted={} expected={} ({}% of expected)",
-                                ocrAttempted, transactions.size(), extractedTotal, expectedTotal, pct);
-                    }
-                }
-
-                if ((transactions == null || transactions.isEmpty()) && !ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForItauOrC6OrNubank) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6/Nubank (disabled for these parsers)");
-                    } else {
-                        String ocrText = runOcrOrThrow(document);
-                        transactions = parsePdfText(ocrText, dueDateFromRequest);
-                        ocrAttempted = true;
-                    }
-                }
-
-                // Some PDFs contain selectable text but with broken font encoding, producing "garbled" merchants.
-                // If we detect low-quality descriptions (or many missing purchase dates), prefer OCR when enabled.
-                if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
-                        && shouldRetryWithOcrForQuality(transactions)) {
-                    if (skipOcrForItauOrC6OrNubank) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6/Nubank (disabled for these parsers)");
-                    } else {
-                        log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
-                        String ocrText = runOcrOrThrow(document);
-                        ocrAttempted = true;
-                        List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
-                        if (isOcrResultBetter(ocrTransactions, transactions)) {
-                            logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
-                            return new ParsedPdfResult(ocrTransactions, baselineParser);
-                        }
-                    }
-                }
-
-                // Detect missing transactions by comparing extracted total vs. the invoice total shown on the PDF.
-                // This is intentionally conservative to avoid triggering OCR for other banks/layouts.
-                if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
-                        && shouldRetryDueToMissingTransactions(transactions, text)) {
-                    if (skipOcrForItauOrC6OrNubank) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6/Nubank (disabled for these parsers)");
-
-                        // Non-OCR fallback: retry PDFBox extraction with positional sorting.
-                        try {
-                            String sortedText = pdfTextExtractor.extractTextSorted(document);
-                            if (sortedText != null && !sortedText.isBlank()) {
-                                List<TransactionData> sortedTransactions = parsePdfText(sortedText, dueDateFromRequest);
-
-                                BigDecimal expected = extractInvoiceExpectedTotal(text);
-                                if (expected == null) {
-                                    expected = extractInvoiceExpectedTotal(sortedText);
-                                }
-
-                                if (expected != null
-                                        && isOcrResultBetterForMissingTransactions(sortedTransactions, transactions, expected)) {
-                                    logInvoiceTotalValidation("PDFBox-sorted", sortedText, sortedTransactions);
-                                        return new ParsedPdfResult(sortedTransactions, baselineParser);
-                                }
-                            }
-                        } catch (Exception e) {
-                            log.info("[InvoiceUpload][PDFBox] Sorted extraction retry failed: {}", e.getMessage());
-                        }
-                    } else {
-                        log.info("[OCR] Trigger: possible missing transactions (total mismatch); retrying once with OCR...");
-                        String ocrText = runOcrOrThrow(document);
-                        ocrAttempted = true;
-                        List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
-
-                        BigDecimal expected = extractInvoiceExpectedTotal(text);
-                        if (expected == null) {
-                            expected = extractInvoiceExpectedTotal(ocrText);
-                        }
-
-                        if (expected != null && isOcrResultBetterForMissingTransactions(ocrTransactions, transactions, expected)) {
-                            logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
-                            return new ParsedPdfResult(ocrTransactions, baselineParser);
-                        }
-                    }
-                }
-
-                logInvoiceTotalValidation(ocrAttempted ? "OCR" : "PDFBox", text, transactions);
-                return new ParsedPdfResult(transactions, baselineParser);
-            } catch (IllegalArgumentException e) {
-                // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
-                // Rationale: many PDFs have selectable text but the due date (or table) is rendered as an image.
-                if (!ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForItauOrC6OrNubank) {
-                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6/Nubank (disabled for these parsers): {}", e.getMessage());
-                        throw e;
-                    }
-                    log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());
-                    ocrAttempted = true;
-                    String ocrText = runOcrOrThrow(document);
-                    logDueDateSignalsIfEnabled("OCR-retry", ocrText);
-                    List<TransactionData> parsed = parsePdfText(ocrText, dueDateFromRequest);
-                    logInvoiceTotalValidation("OCR", ocrText, parsed);
-                    return new ParsedPdfResult(parsed, baselineParser);
-                }
-                throw e;
-=======
         try {
             ExtractionResult result = extractionPipeline.extractFromPdf(inputStream, password, dueDateOverride);
             List<TransactionData> mapped = new ArrayList<>();
@@ -467,9 +261,9 @@ public class InvoiceUploadService {
                 );
                 data.dueDate = p.dueDate;
                 mapped.add(data);
->>>>>>> 6864e9ee39fef8652a6099b3ecbc24e8860ddb9b
             }
-            return mapped;
+
+            return new ParsedPdfResult(mapped, result.parseResult(), result.rawText());
         } catch (org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException e) {
             if (password != null && !password.isBlank()) {
                 throw new IllegalArgumentException("Senha incorreta para o arquivo PDF.");
