@@ -351,8 +351,74 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
             out.add(td);
         }
 
+        out = deduplicateAnnuityRefunds(out);
         System.out.println("[C6Parser] Total extracted: " + out.size() + " transactions");
         return out;
+    }
+
+    /**
+     * Remove pares de transações de estorno/tarifa (anuidade).
+     * 
+     * Critérios RIGOROSOS:
+     * - tx1: contém "estorno" E ("tarifa" OU "anuidade")
+     * - tx2: contém ("tarifa" OU "anuidade") MAS NÃO contém "estorno"
+     * - Mesma data
+     * - Mesmo valor absoluto
+     * 
+     * Se encontrar um par, remove ambas do resultado.
+     * 
+     * IMPORTANTE: Não remove duplicatas legítimas (ex: duas compras iguais no mesmo dia).
+     * Só remove quando há explicitamente um "estorno" pareado com uma "tarifa/anuidade".
+     */
+    private List<TransactionData> deduplicateAnnuityRefunds(List<TransactionData> transactions) {
+        if (transactions == null || transactions.isEmpty()) {
+            return transactions;
+        }
+
+        List<TransactionData> result = new ArrayList<>(transactions);
+        boolean removed = true;
+
+        // Continua removendo pares até não encontrar mais
+        while (removed) {
+            removed = false;
+
+            for (int i = 0; i < result.size(); i++) {
+                TransactionData tx1 = result.get(i);
+                String desc1 = normalizeForSearch(tx1.description);
+
+                // Verificar se tx1 é um estorno de tarifa/anuidade
+                boolean isRefund = (desc1.contains("estorno") && (desc1.contains("tarifa") || desc1.contains("anuidade")));
+                if (!isRefund) {
+                    continue; // Não é estorno de tarifa/anuidade, pula
+                }
+
+                // Procurar pelo par (mesma data, mesmo valor, com tarifa ou anuidade, MAS SEM estorno)
+                for (int j = i + 1; j < result.size(); j++) {
+                    TransactionData tx2 = result.get(j);
+                    String desc2 = normalizeForSearch(tx2.description);
+
+                    // Mesma data, mesmo valor, tx2 tem tarifa ou anuidade, MAS NÃO tem estorno
+                    if (tx1.date.equals(tx2.date) &&
+                            tx1.amount.equals(tx2.amount) &&
+                            (desc2.contains("tarifa") || desc2.contains("anuidade")) &&
+                            !desc2.contains("estorno")) {
+
+                        System.out.println("[C6Parser] REMOVING ANNUITY REFUND PAIR: " + tx1.description + " [" + tx1.amount + "] <-> " + tx2.description + " [" + tx2.amount + "]");
+
+                        // Remover o maior índice primeiro para não deslocar
+                        result.remove(j);
+                        result.remove(i);
+                        removed = true;
+                        break; // Recomeçar a busca
+                    }
+                }
+
+                if (removed) break; // Recomeçar o loop externo
+            }
+        }
+
+        return result;
+
     }
 
     private String createDedupKey(TransactionData tx) {
