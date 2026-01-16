@@ -47,4 +47,16 @@ public class TransactionData {
     public void setCardholderName(String cardholderName) {
         this.cardholderName = cardholderName;
     }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public LocalDate getDate() {
+        return date;
+    }
 }
