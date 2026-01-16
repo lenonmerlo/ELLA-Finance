@@ -37,7 +37,19 @@ class NubankInvoiceParserTest {
                 "         └→ Total e pagar: R$ 43,75 (valor da transação de R$ 43,75 + R$ 0,00 de IOF + R$ 0,00 de juros).",
                 "",
                 "12 NOV    🏪    R F CRUZ CHURRASCANAL    R$ 104,30",
-                "         └→ Total e pagar: R$ 104,29 (valor da transação de R$ 85,00 + R$ 0,81 de IOF + R$ 18,49 de juros).",
+                "         ↳ Total a pagar: R$ 104,29 (valor da transação de R$ 85,00 + R$ 0,81 de IOF + R$ 18,49 de juros).",
+                "",
+                // variações comuns que antes eram perdidas
+                "07 nov    🏪    CAPPTA *GRAU DE BEBIDA    R$ 9,00    (aprovada)",
+                "07 nov    🏪    CAPPTA *GRAU DE BEBIDA    R$ 9,00",
+                "08 NOV    🏪    LOJA EM 2 LINHAS",
+                "R$ 12,34",
+                "09 N0V    🏪    MERCADO OCR    R$ 20,00",
+                "",
+                // transação sem data na linha principal: data ancorada na linha anterior
+                "13 NOV",
+                "PARQUE VILA ITAPUA INC SPE LTD    R$ 91,70",
+                "↳ Total a pagar: R$ 91,69 (valor da transação de R$ 70,00 + R$ 0,00 de IOF + R$ 21,69 de juros).",
                 "",
                 "Pagamentos e Financiamentos    -R$ 660,63",
                 "",
@@ -52,7 +64,7 @@ class NubankInvoiceParserTest {
 
         List<TransactionData> txs = parser.extractTransactions(text);
         assertNotNull(txs);
-        assertEquals(4, txs.size());
+        assertEquals(9, txs.size());
 
         TransactionData t1 = txs.get(0);
         assertEquals("Pepay*Segurofatura", t1.description);
@@ -70,17 +82,52 @@ class NubankInvoiceParserTest {
 
         TransactionData t3 = txs.get(2);
         assertEquals("R F CRUZ CHURRASCANAL", t3.description);
-        // a linha principal tem 104,30, mas o "Total e pagar" pode ajustar para 104,29
-        assertEquals(0, t3.amount.compareTo(new BigDecimal("104.29")));
+        // usa sempre o valor da linha principal
+        assertEquals(0, t3.amount.compareTo(new BigDecimal("104.30")));
         assertEquals(TransactionType.EXPENSE, t3.type);
         assertEquals("Alimentação", t3.category);
         assertEquals(LocalDate.of(2025, 11, 12), t3.date);
 
         TransactionData t4 = txs.get(3);
-        assertEquals("Pagamento em 05 NOV", t4.description);
-        assertEquals(0, t4.amount.compareTo(new BigDecimal("934.83")));
-        assertEquals(TransactionType.INCOME, t4.type);
-        assertEquals("Reembolso", t4.category);
-        assertEquals(LocalDate.of(2025, 11, 5), t4.date);
+        assertEquals("CAPPTA *GRAU DE BEBIDA", t4.description);
+        assertEquals(0, t4.amount.compareTo(new BigDecimal("9.00")));
+        assertEquals(TransactionType.EXPENSE, t4.type);
+        assertNotNull(t4.category);
+        assertEquals(LocalDate.of(2025, 11, 7), t4.date);
+
+        TransactionData t5 = txs.get(4);
+        assertEquals("CAPPTA *GRAU DE BEBIDA", t5.description);
+        assertEquals(0, t5.amount.compareTo(new BigDecimal("9.00")));
+        assertEquals(TransactionType.EXPENSE, t5.type);
+        assertNotNull(t5.category);
+        assertEquals(LocalDate.of(2025, 11, 7), t5.date);
+
+        TransactionData t6 = txs.get(5);
+        assertEquals("LOJA EM 2 LINHAS", t6.description);
+        assertEquals(0, t6.amount.compareTo(new BigDecimal("12.34")));
+        assertEquals(TransactionType.EXPENSE, t6.type);
+        assertNotNull(t6.category);
+        assertEquals(LocalDate.of(2025, 11, 8), t6.date);
+
+        TransactionData t7 = txs.get(6);
+        assertEquals("MERCADO OCR", t7.description);
+        assertEquals(0, t7.amount.compareTo(new BigDecimal("20.00")));
+        assertEquals(TransactionType.EXPENSE, t7.type);
+        assertNotNull(t7.category);
+        assertEquals(LocalDate.of(2025, 11, 9), t7.date);
+
+        TransactionData t8 = txs.get(7);
+        assertEquals("PARQUE VILA ITAPUA INC SPE LTD", t8.description);
+        assertEquals(0, t8.amount.compareTo(new BigDecimal("91.70")));
+        assertEquals(TransactionType.EXPENSE, t8.type);
+        assertNotNull(t8.category);
+        assertEquals(LocalDate.of(2025, 11, 13), t8.date);
+
+        TransactionData t9 = txs.get(8);
+        assertEquals("Pagamento em 05 NOV", t9.description);
+        assertEquals(0, t9.amount.compareTo(new BigDecimal("934.83")));
+        assertEquals(TransactionType.INCOME, t9.type);
+        assertEquals("Reembolso", t9.category);
+        assertEquals(LocalDate.of(2025, 11, 5), t9.date);
     }
 }

@@ -157,12 +157,17 @@ public class InvoiceUploadService {
         try (InputStream is = file.getInputStream()) {
             List<TransactionData> transactions;
             if (isPdf) {
-                transactions = parsePdf(is, password, dueDate);
+                ParsedPdfResult parsed = parsePdfDetailed(is, password, dueDate);
+                transactions = parsed.transactions();
+
+                // Nubank: duplicatas estritamente idênticas podem ser legítimas (ex.: duas compras iguais no mesmo dia).
+                // Portanto, não removemos "exact duplicates" automaticamente para esse banco.
+                boolean allowExactDuplicates = parsed.baselineParser() instanceof com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
+                transactions = deduplicateTransactions(transactions, allowExactDuplicates);
             } else {
                 transactions = parseCsv(is);
+                transactions = deduplicateTransactions(transactions);
             }
-
-            transactions = deduplicateTransactions(transactions);
 
             if (transactions == null || transactions.isEmpty()) {
                 if (isPdf) {
@@ -185,10 +190,33 @@ public class InvoiceUploadService {
         }
     }
 
+    private record ParsedPdfResult(List<TransactionData> transactions, InvoiceParserStrategy baselineParser) {}
+
     private List<TransactionData> deduplicateTransactions(List<TransactionData> transactions) {
+        return deduplicateTransactions(transactions, false);
+    }
+
+    private List<TransactionData> deduplicateTransactions(List<TransactionData> transactions, boolean allowExactDuplicates) {
         if (transactions == null || transactions.isEmpty()) return transactions;
 
         int before = transactions.size();
+
+        // Quando allowExactDuplicates=true, apenas removemos nulos.
+        if (allowExactDuplicates) {
+            List<TransactionData> cleaned = new ArrayList<>();
+            int nulls = 0;
+            for (TransactionData tx : transactions) {
+                if (tx == null) {
+                    nulls++;
+                    continue;
+                }
+                cleaned.add(tx);
+            }
+            if (nulls > 0) {
+                log.info("[Dedup] Dropped null transactions only ({} -> {}), droppedNulls={}", before, cleaned.size(), nulls);
+            }
+            return cleaned;
+        }
 
         // Importante: não podemos deduplicar por (data+descrição+valor), pois transações legítimas podem se repetir.
         // Aqui removemos APENAS duplicatas estritamente idênticas (mesmos campos relevantes, incluindo cartão/parcelas/tipo).
@@ -281,6 +309,10 @@ public class InvoiceUploadService {
     }
 
     private List<TransactionData> parsePdf(InputStream inputStream, String password, String dueDateOverride) throws IOException {
+        return parsePdfDetailed(inputStream, password, dueDateOverride).transactions();
+    }
+
+    private ParsedPdfResult parsePdfDetailed(InputStream inputStream, String password, String dueDateOverride) throws IOException {
         forceDebugHeader("parsePdf");
         logDebugConfigOnce("parsePdf");
 
@@ -308,16 +340,17 @@ public class InvoiceUploadService {
             } catch (Exception ignored) {
                 baselineParser = null;
             }
-            boolean skipOcrForItauOrC6 = baselineParser instanceof ItauInvoiceParser
-                    || baselineParser instanceof C6InvoiceParser;
+                boolean skipOcrForItauOrC6OrNubank = baselineParser instanceof ItauInvoiceParser
+                    || baselineParser instanceof C6InvoiceParser
+                    || baselineParser instanceof com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
 
             logExtractedTextIfEnabled("PDFBox", text);
             logDueDateSignalsIfEnabled("PDFBox", text);
 
             boolean ocrAttempted = false;
             if (shouldAttemptOcr(text)) {
-                if (skipOcrForItauOrC6) {
-                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6 (disabled temporarily)");
+                if (skipOcrForItauOrC6OrNubank) {
+                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6/Nubank (disabled for these parsers)");
                 } else {
                     text = runOcrOrThrow(document);
                     ocrAttempted = true;
@@ -328,7 +361,7 @@ public class InvoiceUploadService {
             }
 
             if (text.isBlank()) {
-                return List.of();
+                return new ParsedPdfResult(List.of(), baselineParser);
             }
 
             String classUrl;
@@ -365,8 +398,8 @@ public class InvoiceUploadService {
                 }
 
                 if ((transactions == null || transactions.isEmpty()) && !ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForItauOrC6) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6 (disabled temporarily)");
+                    if (skipOcrForItauOrC6OrNubank) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6/Nubank (disabled for these parsers)");
                     } else {
                         String ocrText = runOcrOrThrow(document);
                         transactions = parsePdfText(ocrText, dueDateFromRequest);
@@ -378,8 +411,8 @@ public class InvoiceUploadService {
                 // If we detect low-quality descriptions (or many missing purchase dates), prefer OCR when enabled.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryWithOcrForQuality(transactions)) {
-                    if (skipOcrForItauOrC6) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6 (disabled temporarily)");
+                    if (skipOcrForItauOrC6OrNubank) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6/Nubank (disabled for these parsers)");
                     } else {
                         log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
                         String ocrText = runOcrOrThrow(document);
@@ -387,7 +420,7 @@ public class InvoiceUploadService {
                         List<TransactionData> ocrTransactions = parsePdfText(ocrText, dueDateFromRequest);
                         if (isOcrResultBetter(ocrTransactions, transactions)) {
                             logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
-                            return ocrTransactions;
+                            return new ParsedPdfResult(ocrTransactions, baselineParser);
                         }
                     }
                 }
@@ -396,8 +429,8 @@ public class InvoiceUploadService {
                 // This is intentionally conservative to avoid triggering OCR for other banks/layouts.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryDueToMissingTransactions(transactions, text)) {
-                    if (skipOcrForItauOrC6) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6 (disabled temporarily)");
+                    if (skipOcrForItauOrC6OrNubank) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6/Nubank (disabled for these parsers)");
 
                         // Non-OCR fallback: retry PDFBox extraction with positional sorting.
                         try {
@@ -413,7 +446,7 @@ public class InvoiceUploadService {
                                 if (expected != null
                                         && isOcrResultBetterForMissingTransactions(sortedTransactions, transactions, expected)) {
                                     logInvoiceTotalValidation("PDFBox-sorted", sortedText, sortedTransactions);
-                                    return sortedTransactions;
+                                        return new ParsedPdfResult(sortedTransactions, baselineParser);
                                 }
                             }
                         } catch (Exception e) {
@@ -432,19 +465,19 @@ public class InvoiceUploadService {
 
                         if (expected != null && isOcrResultBetterForMissingTransactions(ocrTransactions, transactions, expected)) {
                             logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
-                            return ocrTransactions;
+                            return new ParsedPdfResult(ocrTransactions, baselineParser);
                         }
                     }
                 }
 
                 logInvoiceTotalValidation(ocrAttempted ? "OCR" : "PDFBox", text, transactions);
-                return transactions;
+                return new ParsedPdfResult(transactions, baselineParser);
             } catch (IllegalArgumentException e) {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
                 // Rationale: many PDFs have selectable text but the due date (or table) is rendered as an image.
                 if (!ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForItauOrC6) {
-                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6 (disabled temporarily): {}", e.getMessage());
+                    if (skipOcrForItauOrC6OrNubank) {
+                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6/Nubank (disabled for these parsers): {}", e.getMessage());
                         throw e;
                     }
                     log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());
@@ -453,7 +486,7 @@ public class InvoiceUploadService {
                     logDueDateSignalsIfEnabled("OCR-retry", ocrText);
                     List<TransactionData> parsed = parsePdfText(ocrText, dueDateFromRequest);
                     logInvoiceTotalValidation("OCR", ocrText, parsed);
-                    return parsed;
+                    return new ParsedPdfResult(parsed, baselineParser);
                 }
                 throw e;
             }

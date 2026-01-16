@@ -25,7 +25,13 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
         // Ex.: 12 NOV    🏪    R F CRUZ CHURRASCANAL    R$ 104,30
         // Observação: alguns extratores variam o número de colunas/ícones; capturamos o miolo e depois removemos ícones.
         private static final Pattern TX_LINE_PATTERN = Pattern.compile(
-            "(?m)^(\\d{2})\\s+([A-Z]{3})\\s+(.+?)\\s+R\\$\\s*([\\d.]+,\\d{2})\\s*$"
+            "(?mi)^(\\d{2})\\s+([A-Z0-9]{3})\\s+(.+?)\\s+R\\$\\s*([\\d.]+,\\d{2})(?:\\s+.*)?$"
+        );
+
+        // Linha principal sem data (a data está na linha anterior): <DESCRICAO> R$ <VALOR>
+        // IMPORTANTE: exclui linhas de detalhe como "↳ Total a pagar".
+        private static final Pattern TX_NO_DATE_PATTERN = Pattern.compile(
+            "(?mi)^(?![↳└]).+?\\s+R\\$\\s*([\\d.]+,\\d{2})(?:\\s+.*)?$"
         );
 
     // Ex.: Pagamento em 05 NOV: -R$ 934,83
@@ -41,6 +47,10 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
     private static final Pattern TOTAL_E_PAGAR_PATTERN = Pattern.compile(
             "(?is)Total e pagar:\\s*R\\$\\s*([\\d.]+,\\d{2})"
     );
+
+        private static final Pattern TOTAL_A_PAGAR_PATTERN = Pattern.compile(
+            "(?is)Total a pagar:\\s*R\\$\\s*([\\d.]+,\\d{2})"
+        );
 
     private static final Map<String, Integer> MONTHS = buildMonths();
 
@@ -95,55 +105,214 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
         List<TransactionData> out = new ArrayList<>();
 
         // 1) Transações (despesas)
-        Matcher txMatcher = TX_LINE_PATTERN.matcher(text);
-        List<SpanMatch> matches = new ArrayList<>();
-        while (txMatcher.find()) {
-            matches.add(new SpanMatch(txMatcher.start(), txMatcher.end(),
-                    txMatcher.group(1), txMatcher.group(2), txMatcher.group(3), txMatcher.group(4)));
-        }
+        // Observação: alguns extratores quebram a linha da transação (descrição em uma linha, valor em outra),
+        // adicionam sufixos após o valor, ou trocam letras por dígitos no mês (ex.: N0V). Fazemos parsing linha-a-linha.
+        String[] lines = text.split("\\r?\\n");
 
-        for (int i = 0; i < matches.size(); i++) {
-            SpanMatch sm = matches.get(i);
-            LocalDate purchaseDate = buildPurchaseDate(sm.day, sm.monthAbbrev, dueDate);
-            if (purchaseDate == null) continue;
+        record Pending(String day, String monthAbbrev, String description) {}
+        record DateAnchor(String day, String monthAbbrev) {}
+        Pending pending = null;
+        DateAnchor lastDateAnchor = null;
 
-            String desc = stripLeadingIconTokens(safeTrim(sm.description));
-            BigDecimal amount = parseBrlAmount(sm.amount);
-            if (desc.isEmpty() || amount == null) continue;
+        Pattern amountOnlyPattern = Pattern.compile("(?i)^R\\$\\s*([\\d.]+,\\d{2})\\s*$");
+        Pattern amountNoCurrencyOnlyPattern = Pattern.compile("^([\\d.]+,\\d{2})\\s*$");
+        Pattern txHeaderPattern = Pattern.compile("(?i)^(\\d{2})\\s+([A-Z0-9]{3})\\s+(.+?)\\s*$");
+        Pattern dateOnlyPattern = Pattern.compile("(?i)^(\\d{2})\\s+([A-Z0-9]{3})\\s*$");
 
-            // Linha opcional: "Total e pagar" (mantemos apenas o total, pois o modelo atual não armazena IOF/juros)
-            int windowStart = sm.end;
-            int windowEnd = (i + 1 < matches.size()) ? matches.get(i + 1).start : Math.min(text.length(), sm.end + 800);
-            if (windowEnd > windowStart) {
-                String between = text.substring(windowStart, windowEnd);
-                Matcher detail = TOTAL_E_PAGAR_PATTERN.matcher(between);
-                if (detail.find()) {
-                    BigDecimal total = parseBrlAmount(detail.group(1));
-                    if (total != null) {
-                        amount = total;
+        for (int i = 0; i < lines.length; i++) {
+            String raw = lines[i];
+            String line = raw == null ? "" : raw.trim();
+            if (line.isEmpty()) continue;
+
+            String nLine = normalizeForSearch(line);
+
+            // Ignora linhas de detalhe "↳ Total a pagar" / "Total e pagar".
+            if (line.startsWith("↳") || nLine.contains("total a pagar") || nLine.contains("total e pagar")) {
+                System.out.println("[NubankParser] SKIPPED: " + line + " (Total a pagar detail line)");
+                continue;
+            }
+
+            // Âncora de data em linha isolada (comum em layouts que quebram a linha da transação)
+            Matcher dateOnly = dateOnlyPattern.matcher(line);
+            if (dateOnly.matches()) {
+                lastDateAnchor = new DateAnchor(dateOnly.group(1), dateOnly.group(2));
+                continue;
+            }
+
+            // se havia uma transação pendente, tenta consumir uma linha de valor
+            if (pending != null) {
+                Matcher amountOnly = amountOnlyPattern.matcher(line);
+                Matcher amountNoCurrencyOnly = amountNoCurrencyOnlyPattern.matcher(line);
+                boolean currencyMatched = amountOnly.matches();
+                boolean noCurrencyMatched = amountNoCurrencyOnly.matches();
+                if (currencyMatched || noCurrencyMatched) {
+                    String amountStr = currencyMatched ? amountOnly.group(1) : amountNoCurrencyOnly.group(1);
+                    String mon = pending.monthAbbrev.replace('0', 'O');
+                    LocalDate purchaseDate = buildPurchaseDate(pending.day, mon, dueDate);
+                    BigDecimal amount = parseBrlAmount(amountStr);
+                    String desc = stripLeadingIconTokens(safeTrim(pending.description));
+                    if (purchaseDate != null && amount != null && !desc.isEmpty()) {
+                        TransactionType type = TransactionType.EXPENSE;
+                        String category = categorizeForNubank(desc, type);
+                        TransactionData td = new TransactionData(
+                                desc,
+                                amount.abs(),
+                                type,
+                                category,
+                                purchaseDate,
+                                null,
+                                TransactionScope.PERSONAL
+                        );
+                        out.add(td);
+                        System.out.println("[NubankParser] Extracted: " + desc + " [" + td.amount + "] on " + td.date);
+                    } else {
+                        System.out.println("[NubankParser] SKIPPED: " + pending.description + " (pending header could not be finalized)");
                     }
+                    pending = null;
+                    continue;
+                } else {
+                    // não era linha de valor; descarta a pendência
+                    System.out.println("[NubankParser] SKIPPED: " + pending.description + " (missing amount line)");
+                    pending = null;
                 }
             }
 
-            TransactionType type = TransactionType.EXPENSE;
-            String category = categorizeForNubank(desc, type);
+            Matcher txMatcher = TX_LINE_PATTERN.matcher(line);
+            if (txMatcher.find()) {
+                String dayStr = txMatcher.group(1);
+                String monStr = txMatcher.group(2);
+                String descRaw = txMatcher.group(3);
+                String amountStr = txMatcher.group(4);
 
-            TransactionData td = new TransactionData(
-                    desc,
-                    amount.abs(),
-                    type,
-                    category,
-                    purchaseDate,
-                    null,
-                    TransactionScope.PERSONAL
-            );
-            out.add(td);
+                // atualiza âncora (para casos onde as próximas linhas dependem dela)
+                lastDateAnchor = new DateAnchor(dayStr, monStr);
+
+                String monNormalized = safeTrim(monStr).replace('0', 'O');
+                LocalDate purchaseDate = buildPurchaseDate(dayStr, monNormalized, dueDate);
+                if (purchaseDate == null) {
+                    System.out.println("[NubankParser] SKIPPED: " + line + " (invalid purchaseDate)");
+                    continue;
+                }
+
+                String desc = stripLeadingIconTokens(safeTrim(descRaw));
+                BigDecimal amount = parseBrlAmount(amountStr);
+                if (desc.isEmpty() || amount == null) {
+                    System.out.println("[NubankParser] SKIPPED: " + line + " (missing desc/amount)");
+                    continue;
+                }
+
+                TransactionType type = TransactionType.EXPENSE;
+                String category = categorizeForNubank(desc, type);
+
+                TransactionData td = new TransactionData(
+                        desc,
+                        amount.abs(),
+                        type,
+                        category,
+                        purchaseDate,
+                        null,
+                        TransactionScope.PERSONAL
+                );
+                out.add(td);
+                System.out.println("[NubankParser] Extracted: " + desc + " [" + td.amount + "] on " + td.date);
+                continue;
+            }
+
+            // Linha principal sem data: <DESCRICAO> R$ <VALOR> (ancora na data anterior)
+            if (lastDateAnchor != null) {
+                Matcher noDate = TX_NO_DATE_PATTERN.matcher(line);
+                if (!noDate.find()) {
+                    // segue fluxo normal
+                } else {
+
+                    BigDecimal amount = parseBrlAmount(noDate.group(1));
+                    if (amount == null) {
+                        System.out.println("[NubankParser] SKIPPED: " + line + " (invalid amount)");
+                        continue;
+                    }
+
+                    int idx = line.toUpperCase(Locale.ROOT).lastIndexOf("R$");
+                    String descRaw = idx > 0 ? line.substring(0, idx).trim() : line;
+                    String desc = stripLeadingIconTokens(safeTrim(descRaw));
+                    if (desc.isEmpty()) {
+                        System.out.println("[NubankParser] SKIPPED: " + line + " (missing description)");
+                        continue;
+                    }
+
+                    String mon = lastDateAnchor.monthAbbrev.replace('0', 'O');
+                    LocalDate purchaseDate = buildPurchaseDate(lastDateAnchor.day, mon, dueDate);
+                    if (purchaseDate == null) {
+                        System.out.println("[NubankParser] SKIPPED: " + line + " (invalid purchaseDate)");
+                        continue;
+                    }
+
+                    TransactionType type = TransactionType.EXPENSE;
+                    String category = categorizeForNubank(desc, type);
+                    TransactionData td = new TransactionData(
+                            desc,
+                            amount.abs(),
+                            type,
+                            category,
+                            purchaseDate,
+                            null,
+                            TransactionScope.PERSONAL
+                    );
+                    out.add(td);
+                    System.out.println("[NubankParser] Extracted: " + desc + " [" + td.amount + "] on " + td.date);
+                    continue;
+                }
+            }
+
+            // tentativa: linha de transação sem valor (valor na linha seguinte)
+            Matcher header = txHeaderPattern.matcher(line);
+            if (header.find()) {
+                String maybeDesc = safeTrim(header.group(3));
+                String maybeDescNorm = normalizeForSearch(maybeDesc);
+                if (!maybeDescNorm.contains("pagamento em") && !maybeDescNorm.contains("pagamentos") && !maybeDescNorm.contains("fatura")) {
+                    lastDateAnchor = new DateAnchor(header.group(1), header.group(2));
+                    pending = new Pending(header.group(1), header.group(2), header.group(3));
+                    continue;
+                }
+            }
+
+            // logs de debug para linhas candidatas que parecem transação mas não bateram
+            boolean looksLikeTx = line.matches("^\\d{2}\\s+\\S{3}.*");
+            boolean hasAmount = line.contains("R$") || line.matches(".*\\d+[\\.,]\\d{2}.*");
+            if (looksLikeTx && hasAmount) {
+                System.out.println("[NubankParser] SKIPPED: " + line);
+            }
         }
 
         // 2) Pagamentos (créditos)
         addPayments(text, dueDate, out);
 
+        System.out.println("[NubankParser] Total extracted: " + out.size() + " transactions");
+
         return out;
+    }
+
+    private BigDecimal extractTotalToPay(String line) {
+        if (line == null || line.isBlank()) return null;
+
+        Matcher m1 = TOTAL_A_PAGAR_PATTERN.matcher(line);
+        if (m1.find()) {
+            return parseBrlAmount(m1.group(1));
+        }
+        Matcher m2 = TOTAL_E_PAGAR_PATTERN.matcher(line);
+        if (m2.find()) {
+            return parseBrlAmount(m2.group(1));
+        }
+
+        return null;
+    }
+
+    private BigDecimal extractTotalAPagar(String line) {
+        if (line == null || line.isBlank()) return null;
+        Matcher m = TOTAL_A_PAGAR_PATTERN.matcher(line);
+        if (m.find()) {
+            return parseBrlAmount(m.group(1));
+        }
+        return null;
     }
 
     private void addPayments(String text, LocalDate dueDate, List<TransactionData> out) {
@@ -328,8 +497,8 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
         String d = desc.trim();
         if (d.isEmpty()) return d;
 
-        // Remove até 2 tokens iniciais caso sejam apenas símbolos/ícones (ex.: 🔄, 💳, 🏪)
-        for (int i = 0; i < 2; i++) {
+        // Remove até 3 tokens iniciais caso sejam apenas símbolos/ícones (ex.: 🔄, 💳, 🏪, ↳, └→)
+        for (int i = 0; i < 3; i++) {
             String[] parts = d.split("\\s+", 2);
             if (parts.length == 0) break;
             String first = parts[0];
