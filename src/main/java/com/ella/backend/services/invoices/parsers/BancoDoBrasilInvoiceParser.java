@@ -36,7 +36,7 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
     // Ex.: 20/08 | PGTO. COBRANCA ... | BR | R$ -84,00
     // Ex.: 21/08 | WWW.STATUE... | TX | R$ 79,68
     private static final Pattern TX_LINE_PATTERN = Pattern.compile(
-            "^(\\d{2}/\\d{2})\\s+(.+?)\\s+([A-Z]{2})?\\s+R\\$\\s*([-\\d.,]+)\\s*$"
+            "^(\\d{2}/\\d{2})\\s+(.+?)\\s+(?:([A-Z]{2})\\s+)?R\\$\\s*([-\\d.,]+)\\s*$"
     );
 
     // Ex.:       | *** 14,00 DOLAR AMERICANO
@@ -240,11 +240,15 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
 
             Matcher tx = TX_LINE_PATTERN.matcher(trimmed);
             if (!tx.find()) {
+                // Linhas de detalhe (devem ser ignoradas): conversão em dólar, IOF, cotação, etc.
+                if (isDetailLine(trimmed, nLine)) {
+                    System.out.println("[BBParser] SKIPPED: " + trimmed + " (detail line)");
+                }
                 continue;
             }
 
             String ddmm = safeTrim(tx.group(1));
-            String description = safeTrim(tx.group(2));
+            String description = cleanTransactionDescription(safeTrim(tx.group(2)));
             String country = safeTrim(tx.group(3));
             String amountStr = safeTrim(tx.group(4));
 
@@ -271,12 +275,65 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
             }
             out.add(td);
 
+            System.out.println("[BBParser] Extracted: " + description + " [" + td.amount + "] on " + td.date);
+
             if (!country.isEmpty() && !"BR".equalsIgnoreCase(country)) {
                 skippingIntlContinuation = true;
             }
         }
 
+        System.out.println("[BBParser] Total extracted: " + out.size() + " transactions");
         return out;
+    }
+
+    private boolean isDetailLine(String trimmed, String normalizedLower) {
+        if (trimmed == null || trimmed.isBlank()) return false;
+        if (normalizedLower == null) normalizedLower = normalizeForSearch(trimmed);
+
+        if (trimmed.startsWith("***")) return true;
+
+        // Exemplos: "Cotação do Dólar de 21/08: R$ 5,6915" / "Cotacao do Dolar ..."
+        if (normalizedLower.startsWith("cotacao") || normalizedLower.startsWith("cotaçao")) {
+            return true;
+        }
+
+        // IOF pode aparecer em linhas separadas em alguns layouts
+        if (normalizedLower.startsWith("iof")) return true;
+
+        return false;
+    }
+
+    private String cleanTransactionDescription(String description) {
+        if (description == null) return "";
+        String d = description.trim();
+        if (d.isEmpty()) return d;
+
+        // Alguns extratores colam as linhas de detalhe na mesma linha da transação.
+        // Mantemos apenas a 1ª linha lógica: corta ao encontrar marcadores de detalhe.
+        int cut = indexOfIgnoreCase(d, "***");
+        if (cut >= 0) {
+            d = d.substring(0, cut).trim();
+        }
+
+        cut = indexOfIgnoreCase(d, "COTAÇÃO");
+        if (cut < 0) cut = indexOfIgnoreCase(d, "COTACAO");
+        if (cut >= 0) {
+            d = d.substring(0, cut).trim();
+        }
+
+        cut = indexOfIgnoreCase(d, " IOF");
+        if (cut >= 0) {
+            d = d.substring(0, cut).trim();
+        }
+
+        return d;
+    }
+
+    private int indexOfIgnoreCase(String haystack, String needle) {
+        if (haystack == null || needle == null) return -1;
+        String h = haystack.toLowerCase(Locale.ROOT);
+        String n = needle.toLowerCase(Locale.ROOT);
+        return h.indexOf(n);
     }
 
     private String extractHolderName(String text) {

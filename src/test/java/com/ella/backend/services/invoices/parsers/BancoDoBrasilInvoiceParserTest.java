@@ -28,6 +28,8 @@ class BancoDoBrasilInvoiceParserTest {
                 "21/08 WWW.STATUEOFLIBERTYTICK866-5689827 TX R$ 79,68",
                 "      *** 14,00 DOLAR AMERICANO",
                 "      Cotação do Dólar de 21/08: R$ 5,6915",
+            // Simula extração onde o PDF cola linhas de detalhe na mesma linha da transação
+            "21/08 911 MUSEUM WEB 646-757-5567 *** 72,00 DOLAR AMERICANO Cotação do Dólar de 21/08: R$ 5,6915 NY R$ 409,79",
                 "Serviços",
                 "22/08 ANUIDADE DIFERENCIADA BR R$ 10,00",
                 "",
@@ -42,7 +44,7 @@ class BancoDoBrasilInvoiceParserTest {
         assertEquals(LocalDate.of(2025, 9, 20), dueDate);
 
         List<TransactionData> txs = parser.extractTransactions(text);
-        assertEquals(3, txs.size());
+        assertEquals(4, txs.size());
 
         TransactionData t1 = txs.get(0);
         assertEquals("PGTO. COBRANCA 2958 0000000200 200", t1.description);
@@ -59,10 +61,16 @@ class BancoDoBrasilInvoiceParserTest {
         assertEquals(LocalDate.of(2025, 8, 21), t2.date);
 
         TransactionData t3 = txs.get(2);
-        assertEquals("ANUIDADE DIFERENCIADA", t3.description);
-        assertEquals(0, t3.amount.compareTo(new BigDecimal("10.00")));
+        assertEquals("911 MUSEUM WEB 646-757-5567", t3.description);
+        assertEquals(0, t3.amount.compareTo(new BigDecimal("409.79")));
         assertEquals(TransactionType.EXPENSE, t3.type);
-        assertEquals("Taxas e Juros", t3.category);
-        assertEquals(LocalDate.of(2025, 8, 22), t3.date);
+        assertEquals(LocalDate.of(2025, 8, 21), t3.date);
+
+        TransactionData t4 = txs.get(3);
+        assertEquals("ANUIDADE DIFERENCIADA", t4.description);
+        assertEquals(0, t4.amount.compareTo(new BigDecimal("10.00")));
+        assertEquals(TransactionType.EXPENSE, t4.type);
+        assertEquals("Taxas e Juros", t4.category);
+        assertEquals(LocalDate.of(2025, 8, 22), t4.date);
     }
 }
