@@ -135,4 +135,56 @@ class SicrediInvoiceParserTest {
         assertEquals(0, t3.amount.compareTo(new BigDecimal("2824.20")));
         assertEquals(LocalDate.of(2025, 11, 15), t3.date);
     }
+
+    @Test
+    void keepsLegitimateDuplicatesWithDifferentTimes() {
+        String text = String.join("\n",
+                "SICREDI",
+                "Vencimento 25/11/2025",
+                "Data e hora          Cidade          Compra          Descrição          Parcela          Valor em reais",
+                "06/nov 06:23         Sao Paulo       Online          99app 99app                        R$ 5,00",
+                "06/nov 15:21         Sao Paulo       Online          99app 99app                        R$ 5,00",
+                "20/out 06:26         Sao Paulo       Online          99app 99app                        R$ 4,90",
+                "20/out 15:19         Sao Paulo       Online          99app 99app                        R$ 4,90"
+        );
+
+        SicrediInvoiceParser parser = new SicrediInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertEquals(4, txs.size());
+
+        // As duplicatas do mesmo dia/valor devem existir como duas transações distintas.
+        assertTrue(txs.get(0).description.contains("99app"));
+        assertTrue(txs.get(1).description.contains("99app"));
+        assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("5.00")));
+        assertEquals(0, txs.get(1).amount.compareTo(new BigDecimal("5.00")));
+    }
+
+    @Test
+    void readsOnlyFirstLineWhenTabularLineIsBrokenAndIgnoresContinuationLine() {
+        String text = String.join("\n",
+                "SICREDI",
+                "Vencimento 25/11/2025",
+                "Data e hora          Cidade          Compra          Descrição          Parcela          Valor em reais",
+                "02/nov 07:04 Amazon Prime Nk7vv2om2 R$ 81,52",
+                "Seattle Wa $14.99 R$ 5,44",
+                "31/out 01:03 Online Amazonmktplc Rhgomesne Sao R$ 149,00",
+                "Paulo B -"
+        );
+
+        SicrediInvoiceParser parser = new SicrediInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertEquals(2, txs.size());
+
+        assertEquals("Amazon Prime Nk7vv2om2", txs.get(0).description);
+        assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("81.52")));
+        assertEquals(LocalDate.of(2025, 11, 2), txs.get(0).date);
+
+        assertTrue(txs.get(1).description.toLowerCase().contains("amazon"));
+        assertEquals(0, txs.get(1).amount.compareTo(new BigDecimal("149.00")));
+        assertEquals(LocalDate.of(2025, 10, 31), txs.get(1).date);
+    }
 }

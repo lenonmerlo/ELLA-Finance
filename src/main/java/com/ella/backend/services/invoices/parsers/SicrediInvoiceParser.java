@@ -24,6 +24,7 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
     // Linha de transação normalmente inicia com "dd/mon" (ex.: 11/nov 06:13)
     private static final Pattern TX_LINE_START_PATTERN = Pattern.compile("(?i)^\\d{2}/[a-z]{3}\\b");
     private static final Pattern DATE_TIME_PATTERN = Pattern.compile("(?i)^(\\d{2})/([a-z]{3})(?:\\s+\\d{2}:\\d{2})?.*$");
+    private static final Pattern TIME_EXTRACT_PATTERN = Pattern.compile("(?i)^\\d{2}/[a-z]{3}\\s+(\\d{2}:\\d{2})\\b.*$");
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("^(\\d{2})/(\\d{2})$");
 
         private static final Pattern DUE_DATE_DD_SLASH_MON_PATTERN = Pattern.compile(
@@ -99,6 +100,12 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
 
         List<TransactionData> out = new ArrayList<>();
 
+        // Sicredi pode ter lançamentos repetidos legítimos (mesmo dia/descrição/valor) em horários diferentes.
+        // Para evitar que esses itens sejam removidos por dedup "exact" mais adiante,
+        // desambiguamos SOMENTE quando há colisão, anexando o horário à descrição.
+        Map<String, List<Integer>> indicesByCollisionKey = new HashMap<>();
+        List<String> timeByIndex = new ArrayList<>();
+
         boolean inTransactionSection = false;
         String currentCard = null;
 
@@ -126,22 +133,116 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
             // Layout tabular
             if (inTransactionSection) {
                 if (!TX_LINE_START_PATTERN.matcher(line).find()) continue;
-                TransactionData tx = parseTxLine(line, currentCard, dueDate);
-                if (tx != null) out.add(tx);
+                ParsedTx parsed = parseTxLineWithTime(line, currentCard, dueDate);
+                if (parsed == null) {
+                    // PDFs reais podem quebrar a linha, removendo colunas (ex.: cidade/compra).
+                    // Nesses casos, ainda queremos ler apenas a primeira linha.
+                    parsed = parseLooseTxLineWithTime(line, currentCard, dueDate);
+                }
+                if (parsed != null && parsed.tx != null) {
+                    addTransactionWithDuplicateDisambiguation(out, parsed, indicesByCollisionKey, timeByIndex);
+                }
                 continue;
             }
 
             // Layout alternativo (sem cabeçalho): ainda tenta pegar linhas que começam com dd/mon.
             if (TX_LINE_START_PATTERN.matcher(line).find()) {
-                TransactionData tx = parseLooseTxLine(line, currentCard, dueDate);
-                if (tx != null) out.add(tx);
+                ParsedTx parsed = parseLooseTxLineWithTime(line, currentCard, dueDate);
+                if (parsed != null && parsed.tx != null) {
+                    addTransactionWithDuplicateDisambiguation(out, parsed, indicesByCollisionKey, timeByIndex);
+                }
             }
         }
 
         return out;
     }
 
-    private TransactionData parseTxLine(String line, String currentCard, LocalDate dueDate) {
+    private void addTransactionWithDuplicateDisambiguation(
+            List<TransactionData> out,
+            ParsedTx parsed,
+            Map<String, List<Integer>> indicesByCollisionKey,
+            List<String> timeByIndex
+    ) {
+        String collisionKey = buildCollisionKey(parsed.collisionKeyBase);
+
+        int idx = out.size();
+        out.add(parsed.tx);
+        timeByIndex.add(parsed.time);
+
+        List<Integer> indices = indicesByCollisionKey.computeIfAbsent(collisionKey, k -> new ArrayList<>());
+        if (!indices.isEmpty()) {
+            // Colisão: anexar horário para todos os itens desse grupo (incluindo o recém-adicionado)
+            // para que não sejam tratados como "exact duplicates".
+            for (Integer priorIdx : indices) {
+                String t = (priorIdx != null && priorIdx >= 0 && priorIdx < timeByIndex.size()) ? timeByIndex.get(priorIdx) : null;
+                if (t != null && !t.isBlank()) {
+                    TransactionData prior = out.get(priorIdx);
+                    prior.description = appendTimeSuffix(prior.description, t);
+                }
+            }
+
+            if (parsed.time != null && !parsed.time.isBlank()) {
+                parsed.tx.description = appendTimeSuffix(parsed.tx.description, parsed.time);
+            }
+        }
+
+        indices.add(idx);
+    }
+
+    private String appendTimeSuffix(String description, String time) {
+        if (description == null) return null;
+        String d = description.trim();
+        if (d.isEmpty()) return description;
+        if (time == null || time.isBlank()) return description;
+
+        // Evita duplicar caso já exista.
+        String suffix = "(" + time.trim() + ")";
+        if (d.endsWith(suffix)) return d;
+        return d + " " + suffix;
+    }
+
+    private String buildCollisionKey(CollisionKeyBase base) {
+        if (base == null) return "";
+
+        String purchaseDate = base.purchaseDate != null ? base.purchaseDate.toString() : "";
+        String dueDate = base.dueDate != null ? base.dueDate.toString() : "";
+        String amount = base.amount != null ? base.amount.toPlainString() : "";
+
+        String type = base.type != null ? base.type.name() : "";
+        String scope = base.scope != null ? base.scope.name() : "";
+
+        String desc = normalizeKeyField(base.description);
+        String cardName = normalizeKeyField(base.cardName);
+
+        String instN = base.installmentNumber != null ? base.installmentNumber.toString() : "";
+        String instT = base.installmentTotal != null ? base.installmentTotal.toString() : "";
+
+        return purchaseDate + "|" + dueDate + "|" + amount + "|" + type + "|" + scope + "|" + desc + "|" + cardName + "|" + instN + "/" + instT;
+    }
+
+    private static String normalizeKeyField(String value) {
+        if (value == null) return "";
+        String v = value.trim();
+        if (v.isEmpty()) return "";
+        v = v.replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+        return v;
+    }
+
+    private record CollisionKeyBase(
+            LocalDate purchaseDate,
+            LocalDate dueDate,
+            BigDecimal amount,
+            TransactionType type,
+            TransactionScope scope,
+            String description,
+            String cardName,
+            Integer installmentNumber,
+            Integer installmentTotal
+    ) {}
+
+    private record ParsedTx(TransactionData tx, String time, CollisionKeyBase collisionKeyBase) {}
+
+    private ParsedTx parseTxLineWithTime(String line, String currentCard, LocalDate dueDate) {
         try {
             // A fatura é tabular: divide por 2+ espaços, preservando campos com 1 espaço.
             String[] parts = line.split("\\s{2,}");
@@ -150,6 +251,8 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
             String dateTimeStr = safeTrim(parts[0]);
             LocalDate purchaseDate = parsePurchaseDate(dateTimeStr, dueDate);
             if (purchaseDate == null) return null;
+
+            String time = extractTime(dateTimeStr);
 
             // Colunas típicas: 0=data/hora, 1=cidade, 2=Online/Presencial, 3=descrição, ... , last=valor em reais
             String description = safeTrim(parts[3]);
@@ -183,16 +286,31 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
                 td.installmentNumber = installment.number();
                 td.installmentTotal = installment.total();
             }
-            return td;
+
+            CollisionKeyBase base = new CollisionKeyBase(
+                    td.date,
+                    td.dueDate,
+                    td.amount,
+                    td.type,
+                    td.scope,
+                    td.description,
+                    td.cardName,
+                    td.installmentNumber,
+                    td.installmentTotal
+            );
+
+            return new ParsedTx(td, time, base);
         } catch (Exception ignored) {
             return null;
         }
     }
 
-    private TransactionData parseLooseTxLine(String line, String currentCard, LocalDate dueDate) {
+    private ParsedTx parseLooseTxLineWithTime(String line, String currentCard, LocalDate dueDate) {
         try {
             String cleaned = line == null ? "" : line.replace('\u00A0', ' ').trim();
             if (cleaned.isEmpty()) return null;
+
+            String time = extractTime(cleaned);
 
             LocalDate purchaseDate = parsePurchaseDate(cleaned, dueDate);
             if (purchaseDate == null) return null;
@@ -251,10 +369,31 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
                 td.installmentNumber = installment.number();
                 td.installmentTotal = installment.total();
             }
-            return td;
+
+            CollisionKeyBase base = new CollisionKeyBase(
+                    td.date,
+                    td.dueDate,
+                    td.amount,
+                    td.type,
+                    td.scope,
+                    td.description,
+                    td.cardName,
+                    td.installmentNumber,
+                    td.installmentTotal
+            );
+
+            return new ParsedTx(td, time, base);
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private String extractTime(String dateTimeStr) {
+        if (dateTimeStr == null || dateTimeStr.isBlank()) return null;
+        Matcher m = TIME_EXTRACT_PATTERN.matcher(dateTimeStr.trim());
+        if (!m.find()) return null;
+        String t = safeTrim(m.group(1));
+        return t.isEmpty() ? null : t;
     }
 
     private TransactionType inferType(String description, BigDecimal amount) {
