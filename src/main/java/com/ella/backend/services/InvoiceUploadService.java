@@ -76,9 +76,9 @@ public class InvoiceUploadService {
                 ParsedPdfResult parsed = parsePdfDetailed(is, password, dueDate);
                 transactions = parsed.transactions();
 
-                // Nubank: duplicatas estritamente idênticas podem ser legítimas (ex.: duas compras iguais no mesmo dia).
-                // Portanto, não removemos "exact duplicates" automaticamente para esse banco.
-                boolean allowExactDuplicates = isNubank(parsed);
+                // Nubank e C6: duplicatas estritamente idênticas podem ser legítimas (ex.: duas compras iguais no mesmo dia).
+                // Portanto, não removemos "exact duplicates" automaticamente para esses bancos.
+                boolean allowExactDuplicates = isNubank(parsed) || isC6(parsed);
                 transactions = deduplicateTransactions(transactions, allowExactDuplicates);
             } else {
                 transactions = parseCsv(is);
@@ -202,6 +202,22 @@ public class InvoiceUploadService {
         if (raw == null) return false;
         String n = raw.toLowerCase(java.util.Locale.ROOT);
         return n.contains("nubank") || n.contains("nu pagamentos") || n.contains("nu bank");
+    }
+
+    private boolean isC6(ParsedPdfResult parsed) {
+        if (parsed == null) return false;
+
+        String bank = parsed.parseResult() != null ? parsed.parseResult().getBankName() : null;
+        if (bank != null) {
+            String b = bank.toLowerCase(java.util.Locale.ROOT);
+            if (b.contains("c6")) return true;
+            if (b.contains("c6 bank") || b.contains("c6bank")) return true;
+        }
+
+        String raw = parsed.rawText();
+        if (raw == null) return false;
+        String n = raw.toLowerCase(java.util.Locale.ROOT);
+        return n.contains("c6 bank") || n.contains("c6bank");
     }
     @Transactional
     @CacheEvict(cacheNames = "dashboard", allEntries = true)

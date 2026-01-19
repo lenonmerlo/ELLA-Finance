@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import com.ella.backend.config.QualityScoreConfig;
 import com.ella.backend.services.invoices.InvoiceParsingException;
 import com.ella.backend.services.invoices.parsers.BancoDoBrasilInvoiceParser;
+import com.ella.backend.services.invoices.parsers.BradescoInvoiceParser;
 import com.ella.backend.services.invoices.parsers.C6InvoiceParser;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.InvoiceParserSelector;
@@ -106,10 +107,11 @@ public class ExtractionPipeline {
             } catch (Exception ignored) {
                 baselineParser = null;
             }
-                boolean skipOcrForItauC6NubankBb = baselineParser instanceof ItauInvoiceParser
+                    boolean skipOcrForItauC6NubankBb = baselineParser instanceof ItauInvoiceParser
                     || baselineParser instanceof C6InvoiceParser
                     || baselineParser instanceof NubankInvoiceParser
-                    || baselineParser instanceof BancoDoBrasilInvoiceParser;
+                        || baselineParser instanceof BancoDoBrasilInvoiceParser
+                        || baselineParser instanceof BradescoInvoiceParser;
 
             logExtractedTextIfEnabled("PDFBox", text);
             logDueDateSignalsIfEnabled("PDFBox", text);
@@ -117,7 +119,7 @@ public class ExtractionPipeline {
             boolean ocrAttempted = false;
             if (shouldAttemptOcr(text)) {
                 if (skipOcrForItauC6NubankBb) {
-                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6/Nubank/BB (disabled for these parsers)");
+                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
                 } else {
                     text = runOcrOrThrow(document);
                     ocrAttempted = true;
@@ -156,7 +158,7 @@ public class ExtractionPipeline {
 
                 if ((transactions == null || transactions.isEmpty()) && !ocrAttempted && ocrProperties.isEnabled()) {
                     if (skipOcrForItauC6NubankBb) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6/Nubank/BB (disabled for these parsers)");
+                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
                     } else {
                         String ocrText = runOcrOrThrow(document);
                         parseResult = parsePdfText(ocrText, dueDateFromRequest);
@@ -170,7 +172,7 @@ public class ExtractionPipeline {
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryWithOcrForQuality(transactions)) {
                     if (skipOcrForItauC6NubankBb) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6/Nubank/BB (disabled for these parsers)");
+                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
                     } else {
                         log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
                         String ocrText = runOcrOrThrow(document);
@@ -188,7 +190,7 @@ public class ExtractionPipeline {
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryDueToMissingTransactions(transactions, text)) {
                     if (skipOcrForItauC6NubankBb) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6/Nubank/BB (disabled for these parsers)");
+                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
 
                         // Non-OCR fallback: retry PDFBox extraction with positional sorting.
                         try {
@@ -237,7 +239,7 @@ public class ExtractionPipeline {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
                 if (!ocrAttempted && ocrProperties.isEnabled()) {
                     if (skipOcrForItauC6NubankBb) {
-                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6/Nubank/BB (disabled for these parsers): {}", e.getMessage());
+                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers): {}", e.getMessage());
                         throw e;
                     }
                     log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());

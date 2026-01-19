@@ -6,11 +6,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,9 +22,7 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
         PAYMENT_OPTIONS
     }
 
-    // Dedup apenas entre seções repetidas do mesmo cartão (ex.: página duplicada).
-    // NÃO deduplica dentro do mesmo bloco, pois podem existir lançamentos realmente idênticos.
-    private final Map<String, Set<String>> previousSectionKeysByCard = new HashMap<>();
+
 
     private static final Pattern DUE_DATE_PATTERN = Pattern.compile("(?is)\\b(venc(?:imento)?|data\\s+de\\s+vencimento|data\\s+do\\s+vencimento)\\b\\s*[:\\-]?\\s*(\\d{2}/\\d{2}/\\d{4})");
 
@@ -231,11 +225,6 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
         List<TransactionData> out = new ArrayList<>();
         String currentCardName = null;
 
-        // Garante que o deduplicador não vaze entre execuções (instância pode ser reutilizada).
-        previousSectionKeysByCard.clear();
-        Set<String> previousKeysForCard = Collections.emptySet();
-        Set<String> currentSectionKeys = new HashSet<>();
-
         Section section = Section.NONE;
 
         String[] lines = text.split("\\r?\\n");
@@ -253,8 +242,6 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
             if (nLine.contains("subtotal deste cartao")) {
                 System.out.println("[C6Parser] Card subtotal reached; resetting card context");
                 currentCardName = null;
-                previousKeysForCard = Collections.emptySet();
-                currentSectionKeys.clear();
                 continue;
             }
 
@@ -278,20 +265,6 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
                 String card = safeTrim(cardMatcher.group(1));
                 String last4 = safeTrim(cardMatcher.group(2));
                 String newCardName = (card.isEmpty() ? "C6" : card) + (last4.isEmpty() ? "" : " " + last4);
-
-                // Se o mesmo cabeçalho de cartão aparece novamente, é forte indício de seção/página duplicada.
-                // Nesse caso, deduplicamos APENAS comparando com o que já vimos em seções anteriores.
-                if (currentCardName != null && currentCardName.equals(newCardName)) {
-                    Set<String> accumulated = previousSectionKeysByCard.computeIfAbsent(newCardName, k -> new HashSet<>());
-                    accumulated.addAll(currentSectionKeys);
-                    currentSectionKeys.clear();
-                    previousKeysForCard = accumulated;
-                    System.out.println("[C6Parser] Repeated card header detected; enabling cross-section dedup for: " + newCardName);
-                } else {
-                    // Novo cartão (ou primeiro cartão): inicia nova seção e carrega dedup acumulado (se houver).
-                    currentSectionKeys.clear();
-                    previousKeysForCard = previousSectionKeysByCard.getOrDefault(newCardName, Collections.emptySet());
-                }
 
                 currentCardName = newCardName;
                 System.out.println("[C6Parser] Found card: " + currentCardName);
@@ -339,13 +312,7 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
                 continue;
             }
 
-            String dedupKey = createDedupKey(td);
-            // Dedup apenas contra seções anteriores do mesmo cartão.
-            if (previousKeysForCard != null && previousKeysForCard.contains(dedupKey)) {
-                System.out.println("[C6Parser] DUPLICATE (cross-section) SKIPPED: " + desc + " = " + td.amount);
-                continue;
-            }
-            currentSectionKeys.add(dedupKey);
+            // Deduplicação removida: lançamentos idênticos são legítimos
 
             System.out.println("[C6Parser] [" + currentCardName + "] Extracted: " + desc + " = " + amount.abs() + " [" + td.date + "]");
             out.add(td);
@@ -419,22 +386,6 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
 
         return result;
 
-    }
-
-    private String createDedupKey(TransactionData tx) {
-        if (tx == null) return "";
-        // Dedup: data + cartão + descrição (normalizada) + valor (+ parcelas/tipo quando houver)
-        // Motivo: o C6 pode repetir linhas em seções diferentes e também ter transações legítimas
-        // com mesmo valor/data/descrição; incluir o cartão reduz falso-positivo de dedup.
-        String d = tx.date == null ? "" : tx.date.toString();
-        String c = tx.cardName == null ? "" : normalizeForSearch(tx.cardName);
-        String desc = tx.description == null ? "" : normalizeForSearch(tx.description);
-        String a = tx.amount == null ? "" : tx.amount.toPlainString();
-        String t = tx.type == null ? "" : tx.type.name();
-        String inst = (tx.installmentNumber != null && tx.installmentTotal != null)
-                ? (tx.installmentNumber + "/" + tx.installmentTotal)
-                : "";
-        return d + "|" + c + "|" + t + "|" + desc + "|" + a + "|" + inst;
     }
 
     private int parseMonth(String monthStr) {

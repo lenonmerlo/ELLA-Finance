@@ -115,4 +115,26 @@ class BradescoInvoiceParserTest {
         assertEquals("PAYGOAL", txs.get(3).description);
         assertEquals(TransactionType.INCOME, txs.get(3).type);
     }
+
+    @Test
+    void ignoresContinuationLinesLikeCam() {
+        String text = String.join("\n",
+                "BRADESCO",
+                "Vencimento: 25/12/2025",
+                "LANÇAMENTOS",
+                "Data  Histórico de Lançamentos                     Valor",
+                "19/03 UNIMED LITORAL 08/10 BALNEARIO              306,88",
+                "                                     CAM",
+                "01/12 BRADESCO AUTO                                50,00",
+                "Resumo da Fatura"
+        );
+
+        BradescoInvoiceParser parser = new BradescoInvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertEquals(2, txs.size());
+
+        assertTrue(txs.get(0).description.contains("UNIMED"));
+        assertTrue(!txs.get(0).description.contains("CAM"));
+        assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("306.88")));
+    }
 }

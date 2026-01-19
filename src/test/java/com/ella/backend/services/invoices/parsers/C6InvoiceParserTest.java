@@ -152,7 +152,7 @@ class C6InvoiceParserTest {
     }
 
     @Test
-    void deduplicatesWhenSameCardSectionRepeats() {
+    void keepsDuplicatesWhenSameCardSectionRepeats() {
         String text = String.join("\n",
                 "C6 BANK",
                 "Vencimento: 20/12/2025",
@@ -166,8 +166,9 @@ class C6InvoiceParserTest {
 
         C6InvoiceParser parser = new C6InvoiceParser();
         List<TransactionData> txs = parser.extractTransactions(text);
-        assertEquals(1, txs.size());
+        assertEquals(2, txs.size());
         assertEquals("BAR PIMENTA CARIOCA", txs.get(0).description);
+        assertEquals("BAR PIMENTA CARIOCA", txs.get(1).description);
     }
 
     @Test
@@ -185,9 +186,10 @@ class C6InvoiceParserTest {
         C6InvoiceParser parser = new C6InvoiceParser();
         List<TransactionData> txs = parser.extractTransactions(text);
 
-        assertEquals(2, txs.size());
+        assertEquals(3, txs.size());
         assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("11.00")));
-        assertEquals(0, txs.get(1).amount.compareTo(new BigDecimal("18.00")));
+        assertEquals(0, txs.get(1).amount.compareTo(new BigDecimal("11.00")));
+        assertEquals(0, txs.get(2).amount.compareTo(new BigDecimal("18.00")));
     }
 
     @Test

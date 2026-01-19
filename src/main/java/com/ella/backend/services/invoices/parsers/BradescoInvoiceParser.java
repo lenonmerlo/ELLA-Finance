@@ -25,8 +25,10 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         private static final Pattern HOLDER_PATTERN = Pattern.compile(
             "(?im)^\\s*titular\\s*[:\\-]?\\s*(.+?)\\s*$");
 
-    private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
-            "(?m)^(\\d{2}/\\d{2})(?:/\\d{2,4})?\\s+(.+?)\\s+(-?[\\d.,]+)\\s*$");
+        private static final Pattern LAUNCH_LINE_PATTERN = Pattern.compile(
+            // Importante: manter por-linha e não permitir que o match atravesse quebras de linha.
+            // Usamos [ \t]+ em vez de \s+ para evitar consumir '\n' e capturar "linhas de continuação".
+            "(?m)^(\\d{2}/\\d{2})(?:/\\d{2,4})?[ \\t]+([^\\r\\n]+?)[ \\t]+(-?[\\d.,]+)\\s*$");
 
 
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("(?i)\\bP/(\\d+)(?:\\s|$)");
@@ -86,8 +88,19 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         String section = extractLaunchesSection(text);
 
         List<TransactionData> out = new ArrayList<>();
-        Matcher matcher = LAUNCH_LINE_PATTERN.matcher(section);
-        while (matcher.find()) {
+        String[] lines = section.split("\\R");
+        for (String rawLine : lines) {
+            String line = safeTrim(rawLine);
+            if (line.isEmpty()) continue;
+
+            Matcher matcher = LAUNCH_LINE_PATTERN.matcher(line);
+            if (!matcher.find()) {
+                if (isLikelyContinuationLine(line)) {
+                    System.out.println("[BradescoParser] SKIPPED continuation line: " + line);
+                }
+                continue;
+            }
+
             String ddmm = safeTrim(matcher.group(1));
             String desc = safeTrim(matcher.group(2));
             String valueRaw = safeTrim(matcher.group(3));
@@ -130,6 +143,8 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
             applyInstallmentInfo(td, desc);
             out.add(td);
 
+            System.out.println("[BradescoParser] Extracted: " + ddmm + " | " + desc + " | " + valueRaw);
+
         }
 
         // NOVO: Verificar qualidade das transações extraídas
@@ -141,8 +156,8 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
         if (expectedTotal != null && totalExtracted.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal threshold = expectedTotal.multiply(BigDecimal.valueOf(0.95));
             if (totalExtracted.compareTo(threshold) < 0) {
-                System.err.println("[Bradesco] ⚠️ Low quality detected: extracted=" + totalExtracted +
-                        " expected=" + expectedTotal + ". OCR will be attempted.");
+                System.err.println("[BradescoParser] ⚠️ Low quality detected: extracted=" + totalExtracted +
+                        " expected=" + expectedTotal + ".");
             }
         }
 
@@ -362,6 +377,16 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
     private String safeTrim(String s) {
         return s == null ? "" : s.trim();
+    }
+
+    private boolean isLikelyContinuationLine(String line) {
+        String t = safeTrim(line);
+        if (t.isEmpty()) return false;
+        if (t.matches("^\\d{2}/\\d{2}.*")) return false;
+
+        // Exemplos reais: linhas como "CAM" abaixo de um lançamento.
+        // Mantemos conservador para evitar logar cabeçalhos/rodapés como continuação.
+        return t.length() <= 6 && t.matches("^[A-Z]{2,6}$");
     }
 }
 
