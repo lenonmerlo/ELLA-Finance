@@ -137,4 +137,42 @@ class BradescoInvoiceParserTest {
         assertTrue(!txs.get(0).description.contains("CAM"));
         assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("306.88")));
     }
+
+    @Test
+    void parsesMultilineLaunchesWhereAmountIsOnNextLineAndIgnoresPaCamMarkers() {
+        String text = String.join("\n",
+                "BRADESCO",
+                "Vencimento: 25/12/2025",
+                "LANÇAMENTOS",
+                "Data  Histórico de Lançamentos                     Valor",
+                // Exemplo real: a linha do lançamento quebra e o valor aparece na linha seguinte
+                "19/03 UNIMED LITORAL",
+                "08/10 BALNEARIO 306,88",
+                "CAM",
+                "19/03 UNIMED LITORAL",
+                "08/10 BALNEARIO 245,10",
+                "CAM",
+                "04/11 CLUBE LIVELO*Club",
+                "01/12 SANTANA DE 42,71",
+                "PA",
+                "Resumo da Fatura"
+        );
+
+        BradescoInvoiceParser parser = new BradescoInvoiceParser();
+        List<TransactionData> txs = parser.extractTransactions(text);
+
+        assertEquals(3, txs.size());
+
+        assertEquals("UNIMED LITORAL", txs.get(0).description);
+        assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("306.88")));
+        assertEquals(LocalDate.of(2025, 3, 19), txs.get(0).date);
+
+        assertEquals("UNIMED LITORAL", txs.get(1).description);
+        assertEquals(0, txs.get(1).amount.compareTo(new BigDecimal("245.10")));
+        assertEquals(LocalDate.of(2025, 3, 19), txs.get(1).date);
+
+        assertEquals("CLUBE LIVELO*Club", txs.get(2).description);
+        assertEquals(0, txs.get(2).amount.compareTo(new BigDecimal("42.71")));
+        assertEquals(LocalDate.of(2025, 11, 4), txs.get(2).date);
+    }
 }

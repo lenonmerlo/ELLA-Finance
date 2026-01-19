@@ -30,6 +30,12 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
             // Usamos [ \t]+ em vez de \s+ para evitar consumir '\n' e capturar "linhas de continuação".
             "(?m)^(\\d{2}/\\d{2})(?:/\\d{2,4})?[ \\t]+([^\\r\\n]+?)[ \\t]+(-?[\\d.,]+)\\s*$");
 
+            private static final Pattern LAUNCH_START_LINE_PATTERN = Pattern.compile(
+                "^(\\d{2}/\\d{2})(?:/\\d{2,4})?[ \\t]+([^\\r\\n]+?)\\s*$");
+
+            private static final Pattern TRAILING_AMOUNT_PATTERN = Pattern.compile(
+                "(-?(?:\\d{1,3}(?:\\.\\d{3})*|\\d+)(?:,\\d{2}|\\.\\d{2}))\\s*$");
+
 
     private static final Pattern INSTALLMENT_PATTERN = Pattern.compile("(?i)\\bP/(\\d+)(?:\\s|$)");
 
@@ -89,14 +95,62 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
         List<TransactionData> out = new ArrayList<>();
         String[] lines = section.split("\\R");
+
+        PendingTx pending = null;
+
         for (String rawLine : lines) {
             String line = safeTrim(rawLine);
             if (line.isEmpty()) continue;
 
-            Matcher matcher = LAUNCH_LINE_PATTERN.matcher(line);
-            if (!matcher.find()) {
+            if (isContinuationMarker(line)) {
+                System.out.println("[BradescoParser] SKIPPED continuation marker: " + line);
+                continue;
+            }
+
+            // Se já temos uma transação pendente (linha inicial com data+descrição),
+            // tratamos as linhas seguintes como continuação/valor, mesmo que iniciem com dd/mm.
+            if (pending != null) {
+                BigDecimal amountFromTrailing = tryParseTrailingAmount(line);
+                if (amountFromTrailing != null) {
+                    TransactionData td = buildTransactionFromPending(pending, amountFromTrailing, dueDate, cardName, holderName);
+                    if (td != null) {
+                        out.add(td);
+                        System.out.println("[BradescoParser] Extracted (multiline): " + pending.ddmm + " | " + pending.description + " | " + amountFromTrailing);
+                    }
+                    pending = null;
+                    continue;
+                }
+
+                // Ignorar detalhamentos (cidade, parcelas, etc.) e marcadores já tratados acima.
                 if (isLikelyContinuationLine(line)) {
                     System.out.println("[BradescoParser] SKIPPED continuation line: " + line);
+                }
+                continue;
+            }
+
+            Matcher matcher = LAUNCH_LINE_PATTERN.matcher(line);
+            if (!matcher.find()) {
+                // Se não há pendência, tenta detectar o início de um lançamento quebrado.
+                Matcher startMatcher = LAUNCH_START_LINE_PATTERN.matcher(line);
+                if (startMatcher.find()) {
+                    String ddmm = safeTrim(startMatcher.group(1));
+                    String desc = safeTrim(startMatcher.group(2));
+
+                    if (!ddmm.isEmpty() && !desc.isEmpty()) {
+                        // Reaplica as mesmas regras de skip da descrição.
+                        if (desc.toUpperCase().startsWith("TOTAL PARA")) {
+                            continue;
+                        }
+
+                        String descUpper = desc.toUpperCase();
+                        if (descUpper.contains("PAGTO") || descUpper.contains("PAGAMENTO") ||
+                                descUpper.contains("DEB EM C/C") || descUpper.contains("DÉBITO EM CONTA")) {
+                            continue;
+                        }
+
+                        pending = new PendingTx(ddmm, desc);
+                        continue;
+                    }
                 }
                 continue;
             }
@@ -377,6 +431,63 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
     private String safeTrim(String s) {
         return s == null ? "" : s.trim();
+    }
+
+    private static final class PendingTx {
+        final String ddmm;
+        final String description;
+
+        PendingTx(String ddmm, String description) {
+            this.ddmm = ddmm;
+            this.description = description;
+        }
+    }
+
+    private TransactionData buildTransactionFromPending(
+            PendingTx pending,
+            BigDecimal amount,
+            LocalDate dueDate,
+            String cardName,
+            String holderName
+    ) {
+        if (pending == null) return null;
+        if (pending.ddmm == null || pending.ddmm.isBlank()) return null;
+        if (pending.description == null || pending.description.isBlank()) return null;
+        if (amount == null) return null;
+
+        TransactionType type = inferType(pending.description, amount);
+        String category = categorize(pending.description, type);
+        LocalDate purchaseDate = parsePurchaseDate(pending.ddmm, dueDate);
+
+        TransactionData td = new TransactionData(
+                pending.description,
+                amount.abs(),
+                type,
+                category,
+                purchaseDate,
+                cardName,
+                TransactionScope.PERSONAL
+        );
+
+        if (holderName != null && !holderName.isBlank()) {
+            td.cardholderName = holderName;
+        }
+
+        applyInstallmentInfo(td, pending.description);
+        return td;
+    }
+
+    private BigDecimal tryParseTrailingAmount(String line) {
+        if (line == null || line.isBlank()) return null;
+        Matcher m = TRAILING_AMOUNT_PATTERN.matcher(line);
+        if (!m.find()) return null;
+        return parseBrlAmount(m.group(1));
+    }
+
+    private boolean isContinuationMarker(String line) {
+        String t = safeTrim(line);
+        if (t.isEmpty()) return false;
+        return "CAM".equalsIgnoreCase(t) || "PA".equalsIgnoreCase(t);
     }
 
     private boolean isLikelyContinuationLine(String line) {
