@@ -308,6 +308,13 @@ public class InvoiceUploadService {
         // Cache para evitar múltiplas consultas/criações do mesmo cartão no mesmo upload
         Map<String, CreditCard> cardCache = new HashMap<>();
 
+        // Santander-only: the upload response total should reflect invoice net amount (EXPENSE - INCOME).
+        // Other banks keep the previous behavior for backwards compatibility.
+        boolean isSantanderInvoice = transactions != null && transactions.stream().anyMatch(tx -> {
+            if (tx == null || tx.cardName == null) return false;
+            return tx.cardName.toLowerCase().contains("santander");
+        });
+
         for (TransactionData data : transactions) {
              CardMetadata cardMetadata = extractCardMetadata(data.cardName, originalFilename);
              String cacheKey = (cardMetadata.brand() + "|" + (cardMetadata.lastFourDigits() != null ? cardMetadata.lastFourDigits() : cardMetadata.name())).toLowerCase();
@@ -335,7 +342,16 @@ public class InvoiceUploadService {
                  invoiceRepository.save(invoice);
                  
                  responseTransactions.add(mapToDTO(tx));
-                 totalAmount = totalAmount.add(tx.getAmount());
+
+                 if (isSantanderInvoice) {
+                     if (data.type == TransactionType.EXPENSE) {
+                         totalAmount = totalAmount.add(tx.getAmount());
+                     } else {
+                         totalAmount = totalAmount.subtract(tx.getAmount());
+                     }
+                 } else {
+                     totalAmount = totalAmount.add(tx.getAmount());
+                 }
              }
         }
         
