@@ -68,8 +68,8 @@ class ItauInvoiceParserTest {
 
         List<TransactionData> txs = parser.extractTransactions(text);
         assertNotNull(txs);
-        // 1 pagamento + 2 compras atuais; NÃO deve incluir próximas faturas
-        assertEquals(3, txs.size());
+        // Pagamentos efetuados devem ser ignorados; NÃO deve incluir próximas faturas
+        assertEquals(2, txs.size());
     }
 
     @Test

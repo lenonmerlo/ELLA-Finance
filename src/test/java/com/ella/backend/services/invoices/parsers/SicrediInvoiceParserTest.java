@@ -40,7 +40,8 @@ class SicrediInvoiceParserTest {
 
         List<TransactionData> txs = parser.extractTransactions(text);
         assertNotNull(txs);
-        assertEquals(5, txs.size());
+        // "Pagamento ..." deve ser ignorado (pagamento de fatura anterior/adiantamento)
+        assertEquals(4, txs.size());
 
         TransactionData t1 = txs.get(0);
         assertEquals("Uber Trip", t1.description);
@@ -72,19 +73,12 @@ class SicrediInvoiceParserTest {
         assertEquals(3, t3.installmentTotal);
 
         TransactionData t4 = txs.get(3);
-        assertEquals("Pagamento 444400130", t4.description);
-        assertEquals(TransactionType.INCOME, t4.type);
-        assertEquals("Pagamento", t4.category);
-        assertEquals(0, t4.amount.compareTo(new BigDecimal("934.83")));
-        assertEquals(LocalDate.of(2025, 11, 15), t4.date);
-
-        TransactionData t5 = txs.get(4);
-        assertEquals("Assai Atacadista Lj27", t5.description);
-        assertEquals(TransactionType.EXPENSE, t5.type);
-        assertEquals("Alimentação", t5.category);
-        assertEquals(0, t5.amount.compareTo(new BigDecimal("120.00")));
-        assertEquals(LocalDate.of(2025, 11, 21), t5.date);
-        assertTrue(t5.cardName.toLowerCase().contains("virtual"));
+        assertEquals("Assai Atacadista Lj27", t4.description);
+        assertEquals(TransactionType.EXPENSE, t4.type);
+        assertEquals("Alimentação", t4.category);
+        assertEquals(0, t4.amount.compareTo(new BigDecimal("120.00")));
+        assertEquals(LocalDate.of(2025, 11, 21), t4.date);
+        assertTrue(t4.cardName.toLowerCase().contains("virtual"));
     }
 
     @Test
@@ -112,7 +106,8 @@ class SicrediInvoiceParserTest {
 
         List<TransactionData> txs = parser.extractTransactions(text);
         assertNotNull(txs);
-        assertEquals(3, txs.size());
+        // "Pagamento fatura" deve ser ignorado
+        assertEquals(2, txs.size());
 
         TransactionData t1 = txs.get(0);
         assertEquals("Uber Trip", t1.description);
@@ -128,12 +123,6 @@ class SicrediInvoiceParserTest {
         assertEquals(0, t2.amount.compareTo(new BigDecimal("786.28")));
         assertEquals(LocalDate.of(2025, 11, 12), t2.date);
 
-        TransactionData t3 = txs.get(2);
-        assertEquals("Pagamento fatura", t3.description);
-        assertEquals(TransactionType.INCOME, t3.type);
-        assertEquals("Pagamento", t3.category);
-        assertEquals(0, t3.amount.compareTo(new BigDecimal("2824.20")));
-        assertEquals(LocalDate.of(2025, 11, 15), t3.date);
     }
 
     @Test

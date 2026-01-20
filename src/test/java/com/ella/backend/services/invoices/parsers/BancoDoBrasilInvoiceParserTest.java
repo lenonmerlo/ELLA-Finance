@@ -44,33 +44,26 @@ class BancoDoBrasilInvoiceParserTest {
         assertEquals(LocalDate.of(2025, 9, 20), dueDate);
 
         List<TransactionData> txs = parser.extractTransactions(text);
-        assertEquals(4, txs.size());
+        // "PGTO. COBRANCA ..." deve ser ignorado (pagamento de fatura anterior/adiantamento)
+        assertEquals(3, txs.size());
 
         TransactionData t1 = txs.get(0);
-        assertEquals("PGTO. COBRANCA 2958 0000000200 200", t1.description);
-        assertEquals(0, t1.amount.compareTo(new BigDecimal("84.00")));
-        assertEquals(TransactionType.INCOME, t1.type);
-        assertEquals("Pagamento", t1.category);
-        assertEquals(LocalDate.of(2025, 8, 20), t1.date);
-        assertNotNull(t1.cardName);
+        assertEquals("WWW.STATUEOFLIBERTYTICK866-5689827", t1.description);
+        assertEquals(0, t1.amount.compareTo(new BigDecimal("79.68")));
+        assertEquals(TransactionType.EXPENSE, t1.type);
+        assertEquals(LocalDate.of(2025, 8, 21), t1.date);
 
         TransactionData t2 = txs.get(1);
-        assertEquals("WWW.STATUEOFLIBERTYTICK866-5689827", t2.description);
-        assertEquals(0, t2.amount.compareTo(new BigDecimal("79.68")));
+        assertEquals("911 MUSEUM WEB 646-757-5567", t2.description);
+        assertEquals(0, t2.amount.compareTo(new BigDecimal("409.79")));
         assertEquals(TransactionType.EXPENSE, t2.type);
         assertEquals(LocalDate.of(2025, 8, 21), t2.date);
 
         TransactionData t3 = txs.get(2);
-        assertEquals("911 MUSEUM WEB 646-757-5567", t3.description);
-        assertEquals(0, t3.amount.compareTo(new BigDecimal("409.79")));
+        assertEquals("ANUIDADE DIFERENCIADA", t3.description);
+        assertEquals(0, t3.amount.compareTo(new BigDecimal("10.00")));
         assertEquals(TransactionType.EXPENSE, t3.type);
-        assertEquals(LocalDate.of(2025, 8, 21), t3.date);
-
-        TransactionData t4 = txs.get(3);
-        assertEquals("ANUIDADE DIFERENCIADA", t4.description);
-        assertEquals(0, t4.amount.compareTo(new BigDecimal("10.00")));
-        assertEquals(TransactionType.EXPENSE, t4.type);
-        assertEquals("Taxas e Juros", t4.category);
-        assertEquals(LocalDate.of(2025, 8, 22), t4.date);
+        assertEquals("Taxas e Juros", t3.category);
+        assertEquals(LocalDate.of(2025, 8, 22), t3.date);
     }
 }

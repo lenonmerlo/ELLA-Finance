@@ -38,7 +38,8 @@ class C6InvoiceParserTest {
         assertEquals(LocalDate.of(2025, 12, 20), dueDate);
 
         List<TransactionData> txs = parser.extractTransactions(text);
-        assertEquals(4, txs.size());
+        // "Inclusao de Pagamento" deve ser ignorado (pagamento de fatura anterior/adiantamento)
+        assertEquals(3, txs.size());
 
         TransactionData t1 = txs.get(0);
         assertEquals("AIRBNB * HMF99EFWK9", t1.description);
@@ -67,14 +68,6 @@ class C6InvoiceParserTest {
         assertEquals("Reembolso", t3.category);
         assertEquals(LocalDate.of(2025, 12, 9), t3.date);
         assertEquals("Carbon Virtual 5867", t3.cardName);
-
-        TransactionData t4 = txs.get(3);
-        assertEquals("Inclusao de Pagamento", t4.description);
-        assertEquals(0, t4.amount.compareTo(new BigDecimal("5698.02")));
-        assertEquals(TransactionType.INCOME, t4.type);
-        assertEquals("Pagamento", t4.category);
-        assertEquals(LocalDate.of(2025, 11, 21), t4.date);
-        assertEquals("Carbon Virtual 1234", t4.cardName);
     }
 
     @Test
