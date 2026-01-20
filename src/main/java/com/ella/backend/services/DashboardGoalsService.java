@@ -23,6 +23,7 @@ public class DashboardGoalsService {
 
     private final PersonRepository personRepository;
     private final GoalRepository goalRepository;
+    private final GoalGeneratorService goalGeneratorService;
 
     public List<GoalProgressDTO> getGoals(String personId) {
         UUID personUuid = UUID.fromString(personId);
@@ -30,6 +31,11 @@ public class DashboardGoalsService {
                 .orElseThrow(() -> new ResourceNotFoundException("Person not found"));
 
         List<Goal> goals = goalRepository.findByOwner(person);
+
+        // Se não tiver metas, gerar automaticamente (determinístico)
+        if (goals == null || goals.isEmpty()) {
+            goals = goalGeneratorService.generateAutomaticGoals(person, 3);
+        }
 
         return goals.stream()
                 .map(this::toProgressDTO)
