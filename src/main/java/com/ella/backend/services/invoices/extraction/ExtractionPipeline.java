@@ -30,6 +30,7 @@ import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
 import com.ella.backend.services.invoices.parsers.ItauInvoiceParser;
 import com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
 import com.ella.backend.services.invoices.parsers.ParseResult;
+import com.ella.backend.services.invoices.parsers.SantanderInvoiceParser;
 import com.ella.backend.services.invoices.parsers.TransactionData;
 import com.ella.backend.services.invoices.quality.ParseQualityEvaluator;
 import com.ella.backend.services.invoices.quality.ParseQualityValidator;
@@ -107,19 +108,20 @@ public class ExtractionPipeline {
             } catch (Exception ignored) {
                 baselineParser = null;
             }
-                    boolean skipOcrForItauC6NubankBb = baselineParser instanceof ItauInvoiceParser
+            boolean skipOcrForItauC6NubankBbSantander = baselineParser instanceof ItauInvoiceParser
                     || baselineParser instanceof C6InvoiceParser
                     || baselineParser instanceof NubankInvoiceParser
-                        || baselineParser instanceof BancoDoBrasilInvoiceParser
-                        || baselineParser instanceof BradescoInvoiceParser;
+                    || baselineParser instanceof BancoDoBrasilInvoiceParser
+                    || baselineParser instanceof BradescoInvoiceParser
+                    || baselineParser instanceof SantanderInvoiceParser;
 
             logExtractedTextIfEnabled("PDFBox", text);
             logDueDateSignalsIfEnabled("PDFBox", text);
 
             boolean ocrAttempted = false;
             if (shouldAttemptOcr(text)) {
-                if (skipOcrForItauC6NubankBb) {
-                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
+                if (skipOcrForItauC6NubankBbSantander) {
+                    log.info("[InvoiceUpload][OCR] Skipping OCR for Itau/C6/Nubank/BB/Bradesco/Santander (disabled for these parsers)");
                 } else {
                     text = runOcrOrThrow(document);
                     ocrAttempted = true;
@@ -157,8 +159,8 @@ public class ExtractionPipeline {
                 }
 
                 if ((transactions == null || transactions.isEmpty()) && !ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForItauC6NubankBb) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
+                    if (skipOcrForItauC6NubankBbSantander) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6/Nubank/BB/Bradesco/Santander (disabled for these parsers)");
                     } else {
                         String ocrText = runOcrOrThrow(document);
                         parseResult = parsePdfText(ocrText, dueDateFromRequest);
@@ -171,8 +173,8 @@ public class ExtractionPipeline {
                 // Some PDFs contain selectable text but with broken font encoding, producing "garbled" merchants.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryWithOcrForQuality(transactions)) {
-                    if (skipOcrForItauC6NubankBb) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
+                    if (skipOcrForItauC6NubankBbSantander) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR quality retry for Itau/C6/Nubank/BB/Bradesco/Santander (disabled for these parsers)");
                     } else {
                         log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
                         String ocrText = runOcrOrThrow(document);
@@ -189,8 +191,8 @@ public class ExtractionPipeline {
                 // Detect missing transactions by comparing extracted total vs. the invoice total shown on the PDF.
                 if (transactions != null && !transactions.isEmpty() && !ocrAttempted && ocrProperties.isEnabled()
                         && shouldRetryDueToMissingTransactions(transactions, text)) {
-                    if (skipOcrForItauC6NubankBb) {
-                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers)");
+                    if (skipOcrForItauC6NubankBbSantander) {
+                        log.info("[InvoiceUpload][OCR] Skipping OCR missing-transactions retry for Itau/C6/Nubank/BB/Bradesco/Santander (disabled for these parsers)");
 
                         // Non-OCR fallback: retry PDFBox extraction with positional sorting.
                         try {
@@ -238,8 +240,8 @@ public class ExtractionPipeline {
             } catch (IllegalArgumentException e) {
                 // If parsing fails (missing due date / unsupported layout / etc), retry once with OCR when enabled.
                 if (!ocrAttempted && ocrProperties.isEnabled()) {
-                    if (skipOcrForItauC6NubankBb) {
-                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6/Nubank/BB/Bradesco (disabled for these parsers): {}", e.getMessage());
+                    if (skipOcrForItauC6NubankBbSantander) {
+                        log.warn("[InvoiceUpload][OCR] Skipping OCR exception retry for Itau/C6/Nubank/BB/Bradesco/Santander (disabled for these parsers): {}", e.getMessage());
                         throw e;
                     }
                     log.warn("[OCR] Parsing failed ({}). Retrying once with OCR...", e.getMessage());
@@ -480,13 +482,35 @@ public class ExtractionPipeline {
         return sum;
     }
 
+    private static BigDecimal sumNetAmounts(List<TransactionData> transactions) {
+        if (transactions == null || transactions.isEmpty()) return BigDecimal.ZERO;
+        BigDecimal sum = BigDecimal.ZERO;
+        for (TransactionData tx : transactions) {
+            if (tx == null || tx.amount == null || tx.type == null) continue;
+
+            if (tx.type == com.ella.backend.enums.TransactionType.EXPENSE) {
+                sum = sum.add(tx.amount.abs());
+            } else if (tx.type == com.ella.backend.enums.TransactionType.INCOME) {
+                sum = sum.subtract(tx.amount.abs());
+            }
+        }
+        return sum;
+    }
+
     private static BigDecimal extractInvoiceExpectedTotal(String text) {
         if (text == null || text.isBlank()) return null;
 
         String normalized = text.replace('\u00A0', ' ');
 
         List<Pattern> patterns = List.of(
-                Pattern.compile("(?is)\\btotal\\s+(?:da\\s+)?fatura\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
+            // Itaú: o PDF costuma ter "Total da fatura anterior" + "Total desta fatura".
+            // Precisamos priorizar a fatura atual e NÃO capturar a anterior.
+            Pattern.compile("(?is)\\btotal\\s+desta\\s+fatura\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
+            Pattern.compile("(?is)\\blan[cç]amentos\\s+atuais\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
+            Pattern.compile("(?is)\\btotal\\s+dos\\s+lan[cç]amentos\\s+atuais\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
+
+            // Genérico (todos os bancos): NÃO capturar "fatura anterior".
+            Pattern.compile("(?is)\\btotal\\s+(?:da\\s+)?fatura\\b(?!\\s*anterior)[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
                 Pattern.compile("(?is)\\btotal\\s+a\\s+pagar\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
                 Pattern.compile("(?is)\\bvalor\\s+total\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])")
         );
@@ -840,7 +864,11 @@ public class ExtractionPipeline {
 
         BigDecimal totalAmount = extractInvoiceExpectedTotal(t);
         if (totalAmount == null || totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            totalAmount = sumExpenseAmounts(transactions);
+            if (parser instanceof SantanderInvoiceParser) {
+                totalAmount = sumNetAmounts(transactions);
+            } else {
+                totalAmount = sumExpenseAmounts(transactions);
+            }
         }
 
         return ParseResult.builder()

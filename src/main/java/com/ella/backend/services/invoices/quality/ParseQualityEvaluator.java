@@ -73,11 +73,12 @@ public class ParseQualityEvaluator {
             log.debug("[ParseQualityEvaluator] ✗ Card last digits NOT found");
         }
 
-        // 4. Número de transações >= 5 (+20)
+        // 4. Número de transações >= mínimo configurado (+20)
         int txCount = result.getTransactions() != null ? result.getTransactions().size() : 0;
-        if (txCount >= 5) {
+        if (txCount >= qualityScoreConfig.getMinTransactions()) {
             score += 20;
-            log.debug("[ParseQualityEvaluator] ✓ Transaction count >= 5: +20 (total: {})", score);
+            log.debug("[ParseQualityEvaluator] ✓ Transaction count >= minTransactions({}): +20 (total: {})",
+                    qualityScoreConfig.getMinTransactions(), score);
         } else {
             log.debug("[ParseQualityEvaluator] ✗ Transaction count is only {}", txCount);
         }
