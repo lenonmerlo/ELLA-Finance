@@ -325,7 +325,7 @@ public class DashboardService {
                             .creditCardBrand(inv.getCard().getBrand())
                             .creditCardLastFourDigits(inv.getCard().getLastFourDigits())
                             .personName(holderName)
-                                                        .totalAmount(calculateInvoiceExpenseTotal(inv))
+                                                        .totalAmount(calculateInvoiceNetTotal(inv))
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)
                             .isPaid(isPaid)
@@ -335,14 +335,19 @@ public class DashboardService {
                 .toList();
     }
 
-        private BigDecimal calculateInvoiceExpenseTotal(Invoice invoice) {
+        private BigDecimal calculateInvoiceNetTotal(Invoice invoice) {
                 if (invoice == null) return BigDecimal.ZERO;
                 try {
                         return installmentRepository.findByInvoice(invoice).stream()
                                         .filter(inst -> inst != null && inst.getTransaction() != null)
-                                        .filter(inst -> inst.getTransaction().getType() == TransactionType.EXPENSE)
-                                        .map(inst -> inst.getAmount())
-                                        .filter(Objects::nonNull)
+                                        .map(inst -> {
+                                                BigDecimal amount = inst.getAmount();
+                                                if (amount == null) return BigDecimal.ZERO;
+                                                // Match invoice total logic: expenses add, everything else subtract.
+                                                return inst.getTransaction().getType() == TransactionType.EXPENSE
+                                                                ? amount
+                                                                : amount.negate();
+                                        })
                                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 } catch (Exception e) {
                         return invoice.getTotalAmount() != null ? invoice.getTotalAmount() : BigDecimal.ZERO;

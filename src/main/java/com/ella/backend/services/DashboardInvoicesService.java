@@ -46,7 +46,7 @@ public class DashboardInvoicesService {
                     inv.getMonth(),
                     inv.getYear(),
                     inv.getDueDate(),
-                    calculateInvoiceExpenseTotal(inv)))
+                    calculateInvoiceNetTotal(inv)))
                 .toList();
             log.info("[DashboardInvoicesService] personId={} month/year={}/{} invoices={} samples={}",
                 personId, month, year, invoices.size(), sample);
@@ -80,7 +80,7 @@ public class DashboardInvoicesService {
                             .creditCardBrand(inv.getCard().getBrand())
                             .creditCardLastFourDigits(inv.getCard().getLastFourDigits())
                             .personName(holderName)
-                            .totalAmount(calculateInvoiceExpenseTotal(inv))
+                            .totalAmount(calculateInvoiceNetTotal(inv))
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)
                         .isPaid(isPaid)
@@ -90,14 +90,19 @@ public class DashboardInvoicesService {
                 .collect(Collectors.toList());
     }
 
-    private BigDecimal calculateInvoiceExpenseTotal(Invoice invoice) {
+    private BigDecimal calculateInvoiceNetTotal(Invoice invoice) {
         if (invoice == null) return BigDecimal.ZERO;
         try {
             return installmentRepository.findByInvoice(invoice).stream()
                     .filter(inst -> inst != null && inst.getTransaction() != null)
-                    .filter(inst -> inst.getTransaction().getType() == TransactionType.EXPENSE)
-                    .map(inst -> inst.getAmount())
-                    .filter(a -> a != null)
+                    .map(inst -> {
+                        BigDecimal amount = inst.getAmount();
+                        if (amount == null) return BigDecimal.ZERO;
+                        // Match invoice total logic: expenses add, everything else subtract.
+                        return inst.getTransaction().getType() == TransactionType.EXPENSE
+                                ? amount
+                                : amount.negate();
+                    })
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
         } catch (Exception e) {
             // fallback para não quebrar o endpoint
