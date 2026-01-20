@@ -15,6 +15,12 @@ final class MerchantCategoryMapper {
         String n = normalize(description);
         String nCompact = compact(n);
 
+        // Disney+ precisa usar o texto original, pois normalize remove '+' (DISNEY+ -> DISNEY)
+        String rawUpper = description.toUpperCase();
+        if (rawUpper.contains("DISNEY+") || rawUpper.contains("DISNEY +")) {
+            return "Assinaturas";
+        }
+
         // Créditos/estornos/pagamentos
         if (type == TransactionType.INCOME) {
             if (n.contains("INCLUSAO DE PAGAMENTO") || n.contains("PAGAMENTO")) {
@@ -108,6 +114,21 @@ final class MerchantCategoryMapper {
             return "Lazer";
         }
 
+        // Disney Parks (viagem/turismo) - deve vir antes de Assinaturas (Disney Plus)
+        if (containsAny(n, nCompact,
+                "DISNEY WORLD",
+                "DISNEY ORLANDO",
+                "DISNEY FLORIDA",
+                "WALT DISNEY",
+                "DISNEY PARKS")) {
+            return "Viagem";
+        }
+
+        // Caso genérico: "DISNEY" (evita classificar Disney Plus como viagem)
+        if (containsAny(n, nCompact, "DISNEY") && !n.contains("PLUS")) {
+            return "Viagem";
+        }
+
         // "BEC" é curto e pode dar falso-positivo; mantém match mais específico.
         if (containsAny(n, nCompact, "BEC ITALO", "BEC11")) {
             return "Alimentação";
@@ -117,7 +138,6 @@ final class MerchantCategoryMapper {
         if (containsAny(n, nCompact,
                 "NETFLIX",
                 "DISNEY PLUS",
-                "DISNEY+",
                 "AMAZON PRIME",
                 "PRIME VIDEO",
                 "HBO MAX",
