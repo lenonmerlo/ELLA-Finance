@@ -341,7 +341,9 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
             TransactionData data = parsePdfLine(raw, inferredYear);
             if (data != null) {
                 pending = null;
-                transactions.add(data);
+                if (section != PdfSection.PAYMENTS || !isPaymentFromPreviousInvoice(data.description)) {
+                    transactions.add(data);
+                }
                 continue;
             }
 
@@ -378,7 +380,9 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
                             null,
                             scope);
                     applyInstallmentInfo(joined, extractInstallmentInfo(pending.description));
-                    transactions.add(joined);
+                    if (section != PdfSection.PAYMENTS || !isPaymentFromPreviousInvoice(joined.description)) {
+                        transactions.add(joined);
+                    }
                 } catch (Exception ignored) {
                     // ignore
                 }
@@ -401,6 +405,21 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
         }
 
         return transactions;
+    }
+
+    private boolean isPaymentFromPreviousInvoice(String description) {
+        if (description == null || description.isBlank()) return false;
+        String n = normalizeSectionLine(description)
+                .replaceAll("[^a-z0-9 ]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        // Ex.: "PAGAMENTO DEB AUTOMATIC" / "PAGAMENTO DEBITADO AUTOMATICAMENTE" / "PAGAMENTO EFETUADO"
+        if (!n.startsWith("pagamento")) return false;
+        if (n.contains("deb") && n.contains("automatic")) return true;
+        if (n.contains("debitado") && n.contains("automatic")) return true;
+        if (n.contains("efetuado")) return true;
+        return true;
     }
 
     private String normalizeForSearch(String input) {

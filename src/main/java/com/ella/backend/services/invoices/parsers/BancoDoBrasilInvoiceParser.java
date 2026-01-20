@@ -254,6 +254,11 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
 
             if (description.isEmpty()) continue;
 
+            // Ignora pagamento de fatura (mês anterior/adiantamento) que aparece como transação na fatura.
+            if (isPaymentFromPreviousInvoice(description)) {
+                continue;
+            }
+
             LocalDate purchaseDate = parsePurchaseDate(ddmm, dueDate);
             BigDecimal signedAmount = parseAmount(amountStr);
             if (purchaseDate == null || signedAmount == null) continue;
@@ -284,6 +289,21 @@ public class BancoDoBrasilInvoiceParser implements InvoiceParserStrategy {
 
         System.out.println("[BBParser] Total extracted: " + out.size() + " transactions");
         return out;
+    }
+
+    private boolean isPaymentFromPreviousInvoice(String description) {
+        if (description == null || description.isBlank()) return false;
+
+        // Normaliza para neutralizar pontuação: "PGTO. COBRANCA" -> "pgto cobranca"
+        String n = normalizeForSearch(description)
+                .replaceAll("[^a-z0-9 ]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        // Ex.: "PGTO. COBRANCA 2958 ..."
+        return n.startsWith("pgto cobranca")
+                || n.startsWith("pagto cobranca")
+                || n.startsWith("pagamento cobranca");
     }
 
     private boolean isDetailLine(String trimmed, String normalizedLower) {

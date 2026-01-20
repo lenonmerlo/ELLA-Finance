@@ -140,6 +140,9 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
                     parsed = parseLooseTxLineWithTime(line, currentCard, dueDate);
                 }
                 if (parsed != null && parsed.tx != null) {
+                    if (isPaymentFromPreviousInvoice(parsed.tx.description)) {
+                        continue;
+                    }
                     addTransactionWithDuplicateDisambiguation(out, parsed, indicesByCollisionKey, timeByIndex);
                 }
                 continue;
@@ -149,12 +152,28 @@ public class SicrediInvoiceParser implements InvoiceParserStrategy {
             if (TX_LINE_START_PATTERN.matcher(line).find()) {
                 ParsedTx parsed = parseLooseTxLineWithTime(line, currentCard, dueDate);
                 if (parsed != null && parsed.tx != null) {
+                    if (isPaymentFromPreviousInvoice(parsed.tx.description)) {
+                        continue;
+                    }
                     addTransactionWithDuplicateDisambiguation(out, parsed, indicesByCollisionKey, timeByIndex);
                 }
             }
         }
 
         return out;
+    }
+
+    private boolean isPaymentFromPreviousInvoice(String description) {
+        if (description == null || description.isBlank()) return false;
+        String n = normalizeForSearch(description);
+
+        // Ex.: "Pagamento 444400130" / "Pagamento fatura"
+        if (n.startsWith("pagamento")) {
+            if (n.matches("^pagamento\\s+\\d{6,}.*$")) return true;
+            if (n.contains("fatura")) return true;
+        }
+
+        return false;
     }
 
     private void addTransactionWithDuplicateDisambiguation(

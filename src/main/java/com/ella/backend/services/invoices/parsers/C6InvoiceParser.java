@@ -283,6 +283,11 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
 
             if (day == null || mon.isEmpty() || desc.isEmpty() || amount == null) continue;
 
+            // Ignora "Inclusao de Pagamento" (pagamento de fatura anterior/adiantamento).
+            if (isPaymentFromPreviousInvoice(desc)) {
+                continue;
+            }
+
             LocalDate purchaseDate = buildPurchaseDate(day, mon, dueDate);
             TransactionType type = inferType(desc, amount);
 
@@ -321,6 +326,15 @@ public class C6InvoiceParser implements InvoiceParserStrategy {
         out = deduplicateAnnuityRefunds(out);
         System.out.println("[C6Parser] Total extracted: " + out.size() + " transactions");
         return out;
+    }
+
+    private boolean isPaymentFromPreviousInvoice(String description) {
+        if (description == null || description.isBlank()) return false;
+        String n = normalizeForSearch(description)
+                .replaceAll("[^a-z0-9 ]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return n.contains("inclusao de pagamento") || n.contains("inclusao pagamento");
     }
 
     /**

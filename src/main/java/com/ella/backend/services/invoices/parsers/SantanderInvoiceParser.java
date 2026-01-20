@@ -32,13 +32,17 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
 
     // Parcelamentos: dd/MM desc MM/TT amount
     private static final Pattern INSTALLMENT_LINE_PATTERN = Pattern.compile(
-            "^(\\d{2}/\\d{2})\\s+(.+?)\\s+(\\d{2}/\\d{2})\\s+(-?[\\d.,]+)\\s*$"
+            "^[^a-zA-Z0-9]*(\\d{1,2}/\\d{1,2})\\s+(.+?)\\s+(\\d{1,2}/\\d{1,2})\\s+([\\-\\u2212\\u2013\\u2014]?\\(?[\\d.,]+\\)?)\\s*$"
     );
 
     // Despesas comuns: dd/MM desc amount [usd]
     private static final Pattern EXPENSE_LINE_PATTERN = Pattern.compile(
-            "^(\\d{2}/\\d{2})\\s+(.+?)\\s+(-?[\\d.,]+)(?:\\s+([\\d.,]+))?\\s*$"
+            "^[^a-zA-Z0-9]*(\\d{1,2}/\\d{1,2})\\s+(.+?)\\s+([\\-\\u2212\\u2013\\u2014]?\\(?[\\d.,]+\\)?)(?:\\s+([\\-\\u2212\\u2013\\u2014]?\\(?[\\d.,]+\\)?))?\\s*$"
     );
+
+        // Some Santander PDFs add a leading "Compra" column before the date (e.g. "@" / "))))" or even digits like "3").
+        // We normalize by trimming anything before the first dd/MM so parsing stays stable.
+        private static final Pattern FIRST_DDMM_PATTERN = Pattern.compile("\\b(\\d{1,2}/\\d{1,2})\\b");
 
     private enum Section {
         NONE,
@@ -146,7 +150,7 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
             // Parse das linhas de transação (sempre começam com dd/MM)
             if (!looksLikeTxLine(line)) continue;
 
-            TransactionData td = parseTxLine(line, currentCardName, dueDate, section);
+            TransactionData td = parseTxLine(normalizeTxLine(line), currentCardName, dueDate, section);
             if (td != null) {
                 if (currentHolderName != null && !currentHolderName.isBlank()) {
                     td.cardholderName = currentHolderName;
@@ -155,12 +159,40 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
             }
         }
 
+        // Santander PDFs often include informational lines for automatic debit of a previous invoice.
+        // These should not be treated as transactions for invoice totals.
+        out.removeIf(this::isPaymentFromPreviousInvoice);
+
         return out;
+    }
+
+    private boolean isPaymentFromPreviousInvoice(TransactionData td) {
+        if (td == null || td.description == null) return false;
+        String desc = normalizeForSearch(td.description);
+
+        return desc.contains("deb autom de fatura")
+                || desc.contains("debito automatico de fatura")
+                || desc.contains("pagamento da fatura anterior")
+                || desc.contains("pagto fatura anterior");
     }
 
     private boolean looksLikeTxLine(String line) {
         if (line == null) return false;
-        return line.matches("^\\d{2}/\\d{2}\\s+.*");
+        // Accept a leading "Compra" marker column (symbols or digits) before the date.
+        Matcher m = FIRST_DDMM_PATTERN.matcher(line);
+        if (!m.find()) return false;
+        // Guardrail: avoid matching random dates deep inside descriptions.
+        return m.start() <= 10;
+    }
+
+    private String normalizeTxLine(String line) {
+        if (line == null || line.isBlank()) return line;
+        String trimmed = line.trim();
+        Matcher m = FIRST_DDMM_PATTERN.matcher(trimmed);
+        if (m.find() && m.start() > 0 && m.start() <= 10) {
+            trimmed = trimmed.substring(m.start()).trim();
+        }
+        return trimmed;
     }
 
     private TransactionData parseTxLine(String line, String cardName, LocalDate dueDate, Section section) {
@@ -294,8 +326,24 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
             if (value == null) return null;
             String v = value.trim();
             if (v.isEmpty()) return null;
-            boolean negative = v.startsWith("-");
-            v = v.replace("-", "");
+
+            // Normalize unicode minus and formatting quirks (PDFs often use non-ASCII minus).
+            v = v.replace('\u00A0', ' ');
+            v = v.replace("−", "-")  // U+2212
+                 .replace("–", "-")  // en dash
+                 .replace("—", "-"); // em dash
+            v = v.replaceAll("\\s+", "");
+
+            boolean negative = false;
+            if (v.startsWith("(") && v.endsWith(")")) {
+                negative = true;
+                v = v.substring(1, v.length() - 1);
+            }
+            if (v.startsWith("-")) {
+                negative = true;
+                v = v.substring(1);
+            }
+
             v = v.replace(".", "").replace(",", ".");
             BigDecimal bd = new BigDecimal(v);
             return negative ? bd.negate() : bd;
