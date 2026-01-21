@@ -108,6 +108,27 @@ mvn spring-boot:run
 
 A API sobe em `http://localhost:8080` (porta padrão Spring Boot).
 
+## E-mail (Resend)
+
+- A chave da Resend deve ser configurada via variável de ambiente `RESEND_API_KEY`.
+- No `application.properties` já está parametrizado como `email.resend.api-key=${RESEND_API_KEY:}` (não coloque a chave diretamente no arquivo).
+
+### Local (usando `.env`)
+
+Se quiser guardar variáveis localmente sem usar `setx`, crie `backend/.env` a partir de `backend/.env.example` (o arquivo `.env` fica ignorado pelo git).
+
+O backend carrega automaticamente o arquivo `backend/.env` no startup (apenas se existir) e **não sobrescreve** variáveis já definidas no ambiente.
+
+PowerShell:
+
+- `Set-Location backend`
+- `./tools/load-env.ps1`
+- `./mvnw.cmd -DskipTests spring-boot:run`
+
+### Deploy/produção
+
+No deploy, configure `RESEND_API_KEY` nas variáveis de ambiente do provedor (Docker/Render/Railway/VM/etc.). Não envie arquivo `.env` no repositório.
+
 ## Build e testes
 
 ```bash
