@@ -99,7 +99,7 @@ public class BudgetService {
         requireNonNegative(request.getNecessaryFixedCost(), "Custo Fixo Necessário");
         requireNonNegative(request.getVariableFixedCost(), "Custo Fixo Variável");
         requireNonNegative(request.getInvestment(), "Investimento");
-        requireNonNegative(request.getPlannedPurchase(), "Compra Programada");
+        requireNonNegative(request.getPlannedPurchase(), "Compra Planejada");
         requireNonNegative(request.getProtection(), "Proteção");
     }
 
