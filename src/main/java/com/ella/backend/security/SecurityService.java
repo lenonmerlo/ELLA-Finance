@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import com.ella.backend.entities.User;
 import com.ella.backend.enums.Role;
+import com.ella.backend.repositories.BudgetRepository;
 import com.ella.backend.repositories.CompanyRepository;
 import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.ExpenseRepository;
@@ -32,6 +33,7 @@ public class SecurityService {
     private final InvoiceRepository invoiceRepository;
     private final GoalRepository goalRepository;
     private final ExpenseRepository expenseRepository;
+    private final BudgetRepository budgetRepository;
 
     // =========================================================
     // Helpers centrais
@@ -202,6 +204,27 @@ public class SecurityService {
                     .map(goal ->
                             goal.getOwner() != null &&
                                     goal.getOwner().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    // =========================================================
+    // Budget
+    // =========================================================
+
+    public boolean canAccessBudget(String budgetId) {
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
+
+        try {
+            UUID uuid = UUID.fromString(budgetId);
+            return budgetRepository.findById(uuid)
+                    .map(budget ->
+                            budget.getOwner() != null &&
+                                    budget.getOwner().getId().equals(user.getId())
                     )
                     .orElse(false);
         } catch (IllegalArgumentException e) {
