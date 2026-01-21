@@ -21,4 +21,10 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
     List<Invoice> findByCardAndStatus(CreditCard card, InvoiceStatus status);
 
     List<Invoice> findByCardOwnerAndMonthAndYear(Person owner, Integer month, Integer year);
+
+    List<Invoice> findByCardOwner(Person owner);
+
+    Optional<Invoice> findTopByCardOwnerOrderByYearDescMonthDesc(Person owner);
+
+    Optional<Invoice> findTopByCardOwnerOrderByDueDateAsc(Person owner);
 }
