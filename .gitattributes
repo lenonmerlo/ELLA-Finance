@@ -1,2 +1,5 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
+
+# Keep Flyway migrations stable across OSes (avoid checksum drift)
+src/main/resources/db/migration/*.sql text eol=lf
