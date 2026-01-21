@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ella.backend.dto.ApiResponse;
@@ -24,6 +25,7 @@ import com.ella.backend.entities.User;
 import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.mappers.UserMapper;
 import com.ella.backend.security.JwtService;
+import com.ella.backend.services.AuthService;
 import com.ella.backend.services.UserService;
 
 import jakarta.servlet.http.Cookie;
@@ -37,6 +39,7 @@ import lombok.RequiredArgsConstructor;
 public class AuthController {
 
     private final UserService userService;
+    private final AuthService authService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
 
@@ -210,5 +213,30 @@ public class AuthController {
         userService.updatePassword(user.getId().toString(), request.getNewPassword());
 
         return ResponseEntity.ok(ApiResponse.message("Senha resetada"));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@RequestParam String email) {
+        authService.forgotPassword(email);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(
+            @RequestParam String token,
+            @RequestParam String newPassword
+    ) {
+        authService.resetPassword(token, newPassword);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<Void> register(
+            @RequestParam String name,
+            @RequestParam String email,
+            @RequestParam String password
+    ) {
+        authService.register(name, email, password);
+        return ResponseEntity.ok().build();
     }
 }
