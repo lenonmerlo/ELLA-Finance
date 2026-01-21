@@ -27,7 +27,6 @@ import com.ella.backend.entities.PasswordResetToken;
 import com.ella.backend.entities.User;
 import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ConflictException;
-import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.PasswordResetTokenRepository;
 import com.ella.backend.repositories.UserRepository;
 
@@ -104,9 +103,10 @@ class AuthServiceTest {
     }
 
     @Test
-    void forgotPassword_userNotFound_throwsNotFound() {
+    void forgotPassword_userNotFound_doesNothing() {
         when(userRepository.findByEmail("x@exemplo.com")).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class, () -> authService.forgotPassword("x@exemplo.com"));
+        authService.forgotPassword("x@exemplo.com");
+        verify(tokenRepository, never()).save(any());
         verify(emailService, never()).send(any());
     }
 

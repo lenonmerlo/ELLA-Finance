@@ -48,6 +48,5 @@ public class UserRequestDTO {
     @NotBlank(message = "Senha é obrigatória")
     private String password;
 
-    @NotNull(message = "Role é obrigatória")
     private Role role;
 }

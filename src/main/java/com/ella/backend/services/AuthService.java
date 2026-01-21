@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class AuthService {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+
     private final UserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
     private final EmailService emailService;
@@ -42,8 +46,13 @@ public class AuthService {
             throw new BadRequestException("E-mail é obrigatório");
         }
 
-        User user = userRepository.findByEmail(normalized)
-                .orElseThrow(() -> new ResourceNotFoundException("Usuário não encontrado"));
+        // Segurança: não revelar se o e-mail existe ou não.
+        var userOpt = userRepository.findByEmail(normalized);
+        if (userOpt.isEmpty()) {
+            return;
+        }
+
+        User user = userOpt.get();
 
         String token = UUID.randomUUID().toString();
         PasswordResetToken resetToken = tokenRepository.findByPerson(user)
@@ -74,7 +83,13 @@ public class AuthService {
                 .variables(Map.of("resetLink", resetLink))
                 .build();
 
-        emailService.send(message);
+        // Não quebrar o fluxo se o provedor de e-mail estiver em modo de testes
+        // ou momentaneamente indisponível.
+        try {
+            emailService.send(message);
+        } catch (Exception e) {
+            log.warn("Falha ao enviar email de reset de senha to={}. Link (DEV): {}", normalized, resetLink, e);
+        }
     }
 
     public void resetPassword(String token, String newPassword) {
@@ -106,7 +121,11 @@ public class AuthService {
                 .variables(Map.of("name", user.getName()))
                 .build();
 
-        emailService.send(message);
+        try {
+            emailService.send(message);
+        } catch (Exception e) {
+            log.warn("Falha ao enviar email de confirmação de reset de senha to={}", user.getEmail(), e);
+        }
     }
 
     public User register(String name, String email, String password) {

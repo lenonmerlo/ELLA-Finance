@@ -11,6 +11,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.ella.backend.dto.ApiResponse;
 import com.ella.backend.dto.UpdateProfileRequestDTO;
+import com.ella.backend.dto.UpdateUserRoleRequestDTO;
 import com.ella.backend.dto.UserRequestDTO;
 import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
@@ -200,6 +202,20 @@ public class UserController {
 
         return ResponseEntity.ok(
                 ApiResponse.message("Usuário deletado com sucesso")
+        );
+    }
+
+    @PatchMapping("/{id}/role")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponseDTO>> updateRole(
+            @PathVariable String id,
+            @Valid @RequestBody UpdateUserRoleRequestDTO request
+    ) {
+        User updated = userService.updateRole(id, request.getRole());
+        UserResponseDTO dto = UserMapper.toResponseDTO(updated);
+
+        return ResponseEntity.ok(
+                ApiResponse.success(dto, "Role atualizado com sucesso")
         );
     }
 }

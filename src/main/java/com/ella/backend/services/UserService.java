@@ -56,6 +56,10 @@ public class UserService {
 
         user.setPassword(passwordEncoder.encode(user.getPassword()));
 
+    // Segurança: criação pública de usuário nunca deve permitir role ADMIN.
+    // Promoções devem ser feitas por fluxo/admin separado.
+    user.setRole(Role.USER);
+
         User created = userRepository.save(user);
 
         // 🔔 Eventos de comunicação (async)
@@ -72,6 +76,18 @@ public class UserService {
         ));
 
         return created;
+    }
+
+
+    @Auditable(action = "USER_ROLE_UPDATED", entityType = "User")
+    public User updateRole(String id, Role role) {
+        if (role == null) {
+            throw new BadRequestException("Role é obrigatória");
+        }
+
+        User existing = findById(id);
+        existing.setRole(role);
+        return userRepository.save(existing);
     }
 
 
