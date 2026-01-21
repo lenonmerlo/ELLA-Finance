@@ -122,6 +122,11 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>io.projectreactor</groupId>
 			<artifactId>reactor-test</artifactId>
 			<scope>test</scope>
@@ -161,6 +166,13 @@
 
 	<build>
 		<plugins>
+			<!-- Flyway Maven Plugin (DEV utility: repair/info/migrate) -->
+			<plugin>
+				<groupId>org.flywaydb</groupId>
+				<artifactId>flyway-maven-plugin</artifactId>
+				<version>11.7.2</version>
+			</plugin>
+
 			<!-- Lombok como annotation processor -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
