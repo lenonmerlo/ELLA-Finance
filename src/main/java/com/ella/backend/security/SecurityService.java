@@ -15,6 +15,7 @@ import com.ella.backend.repositories.CreditCardRepository;
 import com.ella.backend.repositories.ExpenseRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.GoalRepository;
+import com.ella.backend.repositories.InvestmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
 import com.ella.backend.repositories.PersonRepository;
 import com.ella.backend.services.UserService;
@@ -34,6 +35,7 @@ public class SecurityService {
     private final GoalRepository goalRepository;
     private final ExpenseRepository expenseRepository;
     private final BudgetRepository budgetRepository;
+    private final InvestmentRepository investmentRepository;
 
     // =========================================================
     // Helpers centrais
@@ -230,6 +232,31 @@ public class SecurityService {
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    // =========================================================
+    // Investment
+    // =========================================================
+
+    public boolean canAccessInvestment(String investmentId) {
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
+
+        try {
+            UUID uuid = UUID.fromString(investmentId);
+            return investmentRepository.findById(uuid)
+                    .map(investment ->
+                            investment.getOwner() != null &&
+                                    investment.getOwner().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    public boolean canAccessInvestmentsOfPerson(String personId) {
+        return canAccessPerson(personId);
     }
 
     // =========================================================
