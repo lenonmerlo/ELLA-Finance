@@ -10,7 +10,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 		"spring.datasource.driverClassName=org.h2.Driver",
 		"spring.datasource.username=sa",
 		"spring.datasource.password=",
-		"spring.jpa.database-platform=org.hibernate.dialect.H2Dialect"
+		"spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
+		"jwt.secret=test-secret"
 })
 class BackendApplicationTests {
 
