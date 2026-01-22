@@ -2,6 +2,13 @@
 
 API do ELLA (assistente financeira) construída em Spring Boot 3.5/Java 21, com segurança via JWT, persistência PostgreSQL e migrações Flyway.
 
+## Licença / Propriedade
+
+Projeto **particular e proprietário**. Reprodução/redistribuição não é permitida sem autorização.
+
+- Licença: [LICENSE.md](../LICENSE.md)
+- Aviso: [NOTICE.md](NOTICE.md)
+
 ## Stack
 
 - Java 21, Spring Boot 3.5 (Web MVC, Data JPA, Security, Validation, Cache, AOP)
