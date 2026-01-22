@@ -88,14 +88,16 @@ set ELLA_OCR_PDF_MAX_PAGES=6
 
 ## Configuração rápida
 
-1. Copie `src/main/resources/application.properties` ou defina variáveis de ambiente:
-   - `spring.datasource.url` (default `jdbc:postgresql://localhost:5432/ella`)
-   - `spring.datasource.username` (default `postgres`)
-   - `spring.datasource.password` (default `123456`)
-   - `jwt.secret` (valor default presente no properties; ideal trocar em produção)
-   - `jwt.expiration` (ms, default `900000` = 15min)
-   - `jwt.refreshExpiration` (ms, default 7 dias)
-   - `cors.allowedOrigins` (default `http://localhost:3000,http://localhost:5173,http://localhost:5174`)
+1. Defina variáveis de ambiente (recomendado) ou use profile `local` + `.env`:
+
+- `DB_PASSWORD` (obrigatória)
+- `JWT_SECRET` (obrigatória)
+- `DB_URL` (opcional; default `jdbc:postgresql://localhost:5432/ella`)
+- `DB_USERNAME` (opcional; default `postgres`)
+- `jwt.expiration` (ms, default `900000` = 15min)
+- `jwt.refreshExpiration` (ms, default 7 dias)
+- `cors.allowedOrigins` (default `http://localhost:3000,http://localhost:5173,http://localhost:5174`)
+
 2. Certifique-se de que o banco exista (`ella`) e o usuário tenha permissão.
 3. Rode as migrações automaticamente ao subir (Flyway executa no start).
 
@@ -117,13 +119,16 @@ A API sobe em `http://localhost:8080` (porta padrão Spring Boot).
 
 Se quiser guardar variáveis localmente sem usar `setx`, crie `backend/.env` a partir de `backend/.env.example` (o arquivo `.env` fica ignorado pelo git).
 
-O backend carrega automaticamente o arquivo `backend/.env` no startup (apenas se existir) e **não sobrescreve** variáveis já definidas no ambiente.
+Para o Spring carregar `.env` automaticamente, ative o profile `local` (isso usa `spring.config.import` e não depende de loader customizado):
 
-PowerShell:
+- PowerShell (exemplo): `setx SPRING_PROFILES_ACTIVE local`
+- ou execute com profile: `mvn -Dspring-boot.run.profiles=local spring-boot:run`
+
+PowerShell (alternativa):
 
 - `Set-Location backend`
 - `./tools/load-env.ps1`
-- `./mvnw.cmd -DskipTests spring-boot:run`
+- `./mvnw.cmd -DskipTests -Dspring-boot.run.profiles=local spring-boot:run`
 
 ### Deploy/produção
 
@@ -167,4 +172,5 @@ Com a aplicação rodando, acesse `http://localhost:8080/swagger-ui.html` (via s
 ## Notas
 
 - `spring.jpa.hibernate.ddl-auto=validate` exige que o schema exista e esteja alinhado às entidades; migrações criam/ajustam o schema.
-- Para produção, sempre sobrescreva `jwt.secret`, `spring.datasource.*` e `cors.allowedOrigins` via variáveis de ambiente ou system properties.
+- Para produção, sempre defina `JWT_SECRET` e `DB_PASSWORD` via variáveis de ambiente ou system properties.
+- Para exigir configuração completa de e-mail na inicialização (fail-fast), use `EMAIL_REQUIRE_CONFIG_ON_STARTUP=true`.
