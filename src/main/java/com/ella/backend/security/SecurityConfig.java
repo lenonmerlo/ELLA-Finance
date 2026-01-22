@@ -113,22 +113,21 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // 🔓 Origens liberadas em desenvolvimento
-        configuration.setAllowedOrigins(List.of(
+        // 🔓 Origens liberadas (dev + produção)
+        // OBS: usamos allowedOriginPatterns para suportar previews do Vercel (subdomínios variados).
+        configuration.setAllowedOriginPatterns(List.of(
                 "http://localhost:5173",     // Vite
                 "http://127.0.0.1:5173",     // Vite às vezes sobe assim
                 "http://localhost:3000",     // se um dia usar Next de novo
-                "http://localhost:5174"      // opcional, outra porta
+                "http://localhost:5174",     // opcional, outra porta
+
+                "https://*.vercel.app",      // previews + possíveis domínios no Vercel
+                "https://ellafinance.vercel.app", // produção (domínio atual)
+                "https://ella-finance.vercel.app" // variante comum
         ));
 
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(List.of(
-                "Authorization",
-                "Content-Type",
-                "X-Requested-With",
-                "Accept",
-                "Origin"
-        ));
+        configuration.setAllowedHeaders(List.of("*"));
 
         configuration.setAllowCredentials(true);
 
