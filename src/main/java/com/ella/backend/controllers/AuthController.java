@@ -23,6 +23,7 @@ import com.ella.backend.dto.DevResetPasswordRequestDTO;
 import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
 import com.ella.backend.exceptions.BadRequestException;
+import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.mappers.UserMapper;
 import com.ella.backend.security.JwtService;
 import com.ella.backend.services.AuthService;
@@ -49,7 +50,13 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponseDTO>> login(@RequestBody AuthRequestDTO request, HttpServletResponse response) {
 
-        User user = userService.findByEmail(request.getEmail());
+        // Não vazar se o e-mail existe (e evitar 404 que parece "endpoint não existe" no frontend).
+        User user;
+        try {
+            user = userService.findByEmail(request.getEmail());
+        } catch (ResourceNotFoundException ex) {
+            throw new BadRequestException("Credenciais inválidas");
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new BadRequestException("Credenciais inválidas");
