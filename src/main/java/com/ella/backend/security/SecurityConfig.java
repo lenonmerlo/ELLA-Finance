@@ -132,8 +132,8 @@ public class SecurityConfig {
                 "X-Requested-With"
         ));
 
-        // JWT via Authorization header (sem cookies) -> não precisa Allow-Credentials.
-        configuration.setAllowCredentials(false);
+        // Frontend está usando credentials: 'include' (cookies). Para passar no preflight, precisamos permitir credentials.
+        configuration.setAllowCredentials(true);
 
         configuration.setMaxAge(3600L);
 
