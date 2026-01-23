@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -36,7 +37,7 @@ public class SecurityConfig {
 
         http
                 .csrf(AbstractHttpConfigurer::disable)
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .cors(Customizer.withDefaults())
                                 .exceptionHandling(ex -> ex
                                                 .authenticationEntryPoint((request, response, authException) -> {
                                                         if (!response.isCommitted()) {
@@ -113,23 +114,28 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // 🔓 Origens liberadas (dev + produção)
-        // OBS: usamos allowedOriginPatterns para suportar previews do Vercel (subdomínios variados).
-        configuration.setAllowedOriginPatterns(List.of(
-                "http://localhost:5173",     // Vite
-                "http://127.0.0.1:5173",     // Vite às vezes sobe assim
-                "http://localhost:3000",     // se um dia usar Next de novo
-                "http://localhost:5174",     // opcional, outra porta
-
-                "https://*.vercel.app",      // previews + possíveis domínios no Vercel
-                "https://ellafinance.vercel.app", // produção (domínio atual)
-                "https://ella-finance.vercel.app" // variante comum
+        // Allowed origins (produção + dev)
+        configuration.setAllowedOrigins(List.of(
+                "https://ellafinance.com.br",
+                "https://www.ellafinance.com.br",
+                "https://ellafinance.vercel.app",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173"
         ));
 
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Origin",
+                "X-Requested-With"
+        ));
 
-        configuration.setAllowCredentials(true);
+        // JWT via Authorization header (sem cookies) -> não precisa Allow-Credentials.
+        configuration.setAllowCredentials(false);
+
+        configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
