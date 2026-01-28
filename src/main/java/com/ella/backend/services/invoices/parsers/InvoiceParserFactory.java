@@ -3,6 +3,7 @@ package com.ella.backend.services.invoices.parsers;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -10,17 +11,19 @@ public class InvoiceParserFactory {
 
     private final List<InvoiceParserStrategy> parsers;
 
-    public InvoiceParserFactory() {
+    public InvoiceParserFactory(@Value("${ella.extractor.base-url:http://localhost:8000}") String ellaExtractorBaseUrl) {
         this.parsers = List.of(
+                // More specific parsers first
+                new ItauPersonaliteInvoiceParser(new EllaExtractorClient(ellaExtractorBaseUrl)),
+                new ItauInvoiceParser(),
+                new BradescoInvoiceParser(),
+                new BancoDoBrasilInvoiceParser(),
+                new SicrediInvoiceParser(),
                 new MercadoPagoInvoiceParser(),
                 new NubankInvoiceParser(),
-                new BancoDoBrasilInvoiceParser(),
-            new SicrediInvoiceParser(),
-                new BradescoInvoiceParser(),
-                new ItauInvoiceParser(),
                 new C6InvoiceParser(),
-            // Santander has broader applicability signals; keep it last to avoid stealing other banks.
-            new SantanderInvoiceParser()
+                // Santander has broader applicability signals; keep it last to avoid stealing other banks.
+                new SantanderInvoiceParser()
         );
     }
 

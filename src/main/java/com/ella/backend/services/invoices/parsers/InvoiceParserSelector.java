@@ -4,6 +4,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.ella.backend.services.invoices.util.NormalizeUtil;
+
 /**
  * Centralizes parser selection so we can unit-test and avoid regressions.
  */
@@ -41,6 +43,14 @@ public final class InvoiceParserSelector {
         for (InvoiceParserStrategy parser : parsers) {
             if (parser == null) continue;
 
+            // Guardrail: never let Bradesco win on clearly-Itaú PDFs.
+            // This happens because several parsers can extract a due date + generic dd/MM lines even when not applicable.
+            if (parser instanceof BradescoInvoiceParser && looksLikeItauInvoice(t)) {
+                Candidate candidate = new Candidate(parser, 0, false, null, 0, null);
+                evaluated.add(candidate);
+                continue;
+            }
+
             boolean applicable = false;
             try {
                 applicable = parser.isApplicable(t);
@@ -77,6 +87,40 @@ public final class InvoiceParserSelector {
         }
 
         return new Selection(best, evaluated);
+    }
+
+    private static boolean looksLikeItauInvoice(String text) {
+        if (text == null || text.isBlank()) return false;
+        String n = NormalizeUtil.normalize(text);
+
+        boolean hasItauBankMarker = n.contains("itau")
+            || n.contains("banco itau")
+            || n.contains("itau unibanco")
+            || n.contains("ita unibanco")
+            || n.contains("unibanco")
+            || n.contains("unibanco holding")
+            || n.contains("itau unibanco holding")
+            || n.contains("ita unibanco holding")
+            || n.contains("itaucard")
+            || n.contains("itau card")
+            || n.contains("ita cares")
+            || n.contains("itau cares")
+            || n.contains("itacares")
+            || n.contains("itaucares");
+
+        if (!hasItauBankMarker) return false;
+
+        boolean hasItauInvoiceLayout = n.contains("resumo da fatura")
+            || n.contains("lancamentos atuais")
+            || n.contains("lanamentos atuais")
+            || n.contains("parcelamento da fatura")
+            || n.contains("pagamento minimo")
+            || n.contains("pagamentomnimo")
+            || n.contains("o total da sua fatura")
+            || n.contains("total desta fatura")
+            || n.contains("total da fatura");
+
+        return hasItauInvoiceLayout;
     }
 
     private static int scoreCandidate(boolean applicable, LocalDate dueDate, int txCount) {
