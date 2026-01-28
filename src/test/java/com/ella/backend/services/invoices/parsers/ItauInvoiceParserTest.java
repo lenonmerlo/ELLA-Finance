@@ -212,4 +212,57 @@ class ItauInvoiceParserTest {
         LocalDate dueDate = parser.extractDueDate(text);
         assertEquals(LocalDate.of(2025, 12, 22), dueDate);
     }
+
+    @Test
+    void discardsAutomaticPaymentAndSummaryLinesEvenIfPdfBoxWeirdSpacesBreakSectionHeaders() {
+        // Reproduz o problema em produção: PDFBox pode inserir NBSP/\p{Z} e quebrar detecção de seções,
+        // fazendo o parser interpretar "pagamentos" como se fossem lançamentos.
+        String text = String.join("\n",
+                "Banco Itaú",
+                "Resumo da fatura",
+                "Total desta fatura",
+                "Pagamento minimo",
+                "Vencimento: 21/11/2025",
+                "",
+                // NBSP entre as palavras
+                "Pagamentos\u00A0efetuados",
+                "20/11/2025 PAGAMENTO DEBITADO AUTOMATICAMENTE -3.692,62",
+                "20/11/2025 Total dos pagamentos -3.692,62",
+                "",
+                "Lançamentos: compras e saques",
+                "21/01 BT SHOP VITORI 11/12 482,00",
+                "04/05 CLINICA SCHUNK 02/05 720,00");
+
+        ItauInvoiceParser parser = new ItauInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+
+        // Só as compras (2), sem pagamentos/resumos.
+        assertEquals(2, txs.size());
+        assertTrue(txs.stream().noneMatch(t -> t.description != null && t.description.toLowerCase().contains("pagamento")));
+        assertTrue(txs.stream().noneMatch(t -> t.description != null && t.description.toLowerCase().contains("total dos pagamentos")));
+    }
+
+    @Test
+    void discardsYearOnlyDescriptionNoiseRow() {
+        String text = String.join("\n",
+                "Banco Itaú",
+                "Pagamentos efetuados",
+                "",
+                "Lançamentos: compras e saques",
+                // Linha ruim que vira "descricao=2025" (caso real)
+                "20/11/2025 2025 -3.692,62",
+                "21/01 BT SHOP VITORI 11/12 482,00");
+
+        ItauInvoiceParser parser = new ItauInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+
+        assertEquals(1, txs.size());
+        assertTrue(txs.get(0).description.toLowerCase().contains("bt shop"));
+    }
 }

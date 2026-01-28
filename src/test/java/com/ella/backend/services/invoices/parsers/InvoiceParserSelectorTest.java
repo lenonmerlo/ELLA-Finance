@@ -21,12 +21,43 @@ class InvoiceParserSelectorTest {
                 "17/11 UBER TRIP 18,40"
         );
 
-        InvoiceParserFactory factory = new InvoiceParserFactory();
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
         InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
 
         assertEquals("ItauInvoiceParser", selection.chosen().parser().getClass().getSimpleName());
         assertTrue(selection.chosen().applicable());
         assertTrue(selection.chosen().txCount() > 0);
+    }
+
+    @Test
+    void selectsItauRegularWhenPersonaliteWouldOtherwiseFalsePositiveOnGenericMarkers() {
+        // Regression: "Resumo/Lançamentos atuais/Total dos lançamentos atuais" aparecem em Itaú regular.
+        // O Personalité não deve aceitar esse layout sem "personalite" e sem "final 1234".
+        String text = String.join("\n",
+                "ITAU UNIBANCO S.A.",
+                "Resumo da fatura em R$",
+                "Lançamentos atuais 2.005,92",
+                "Total dos lançamentos atuais 2.005,92",
+                "",
+                "Pagamentos efetuados",
+                "21/11 PAGAMENTO DEB AUTOMATIC -3.692,62",
+                "Total dos pagamentos -3.692,62",
+                "",
+                "Lançamentos: compras e saques",
+                "15/10 CLINICA SCHUNK 02/05 720,00",
+                "28/08 OTICA PARIS F6 04/10 83,92",
+                "21/08 CLINICA SCHUNK 04/05 720,00",
+                "22/01 BT SHOP VITORI 11/12 482,00",
+                "",
+                "Compras parceladas - próximas faturas",
+                "22/01 BT SHOP VITORI 12/12 482,00");
+
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
+        InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
+
+        assertEquals("ItauInvoiceParser", selection.chosen().parser().getClass().getSimpleName());
+        assertTrue(selection.chosen().applicable());
+        assertEquals(4, selection.chosen().txCount());
     }
 
     @Test
@@ -50,7 +81,7 @@ class InvoiceParserSelectorTest {
                 "Saldo Atual"
         );
 
-        InvoiceParserFactory factory = new InvoiceParserFactory();
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
         InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
 
         assertEquals("BradescoInvoiceParser", selection.chosen().parser().getClass().getSimpleName());
@@ -74,7 +105,7 @@ class InvoiceParserSelectorTest {
                 "19/12 IFD*IFD*COMERCIO DE 120,90"
         );
 
-        InvoiceParserFactory factory = new InvoiceParserFactory();
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
         InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
 
         assertEquals("MercadoPagoInvoiceParser", selection.chosen().parser().getClass().getSimpleName());

@@ -130,4 +130,58 @@ class NubankInvoiceParserTest {
         assertEquals("Reembolso", t9.category);
         assertEquals(LocalDate.of(2025, 11, 5), t9.date);
     }
+
+    @Test
+    void parsesThreeLineTransactionWhenTotalToPayDetailIsWrappedAcrossMultipleLines() {
+        String text = String.join("\n",
+                "Nubank",
+                "Nu Pagamentos S.A.",
+                "Esta é a sua fatura de dezembro, no valor de R$ 110,00",
+                "Data de vencimento: 12 DEZ 2025",
+                "TRANSAÇÕES DE 05 NOV A 05 DEZ",
+                // header sem valor
+                "12 NOV PARQUE VILA ITAPUA INC SPE LTD",
+                // linha de detalhe (1)
+                "Total a pagar: R$ 91,69 (valor da transação de R$ 75,39 + R$ 0,70 de IOF +",
+                // linha de detalhe (2) - continuação
+                "R$ 15,60 de juros).",
+                // valor final em linha isolada
+                "R$ 91,69");
+
+        NubankInvoiceParser parser = new NubankInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+        assertEquals(1, txs.size());
+        assertEquals("PARQUE VILA ITAPUA INC SPE LTD", txs.get(0).description);
+        assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("91.69")));
+        assertEquals(LocalDate.of(2025, 11, 12), txs.get(0).date);
+        assertEquals(TransactionType.EXPENSE, txs.get(0).type);
+    }
+
+    @Test
+    void parsesThreeLineTransactionWhenMerchantContainsWordPagamentos() {
+        String text = String.join("\n",
+                "Nubank",
+                "Nu Pagamentos S.A.",
+                "Esta é a sua fatura de dezembro, no valor de R$ 65,00",
+                "Data de vencimento: 12 DEZ 2025",
+                "TRANSAÇÕES DE 05 NOV A 05 DEZ",
+                "12 NOV GOOGLE BRASIL PAGAMENTOS LTDA.",
+                "Total a pagar: R$ 12,83 (valor da transação de R$ 10,90 + R$ 0,09 de IOF +",
+                "R$ 1,85 de juros).",
+                "R$ 12,84");
+
+        NubankInvoiceParser parser = new NubankInvoiceParser();
+        assertTrue(parser.isApplicable(text));
+
+        List<TransactionData> txs = parser.extractTransactions(text);
+        assertNotNull(txs);
+        assertEquals(1, txs.size());
+        assertEquals("GOOGLE BRASIL PAGAMENTOS LTDA.", txs.get(0).description);
+        assertEquals(0, txs.get(0).amount.compareTo(new BigDecimal("12.84")));
+        assertEquals(LocalDate.of(2025, 11, 12), txs.get(0).date);
+        assertEquals(TransactionType.EXPENSE, txs.get(0).type);
+    }
 }

@@ -79,7 +79,7 @@ class ExtractionPipelineAdobeFallbackTest {
             ParseQualityValidator validator,
             AdobeExtractor adobeExtractor
     ) {
-        InvoiceParserFactory invoiceParserFactory = new InvoiceParserFactory();
+        InvoiceParserFactory invoiceParserFactory = new InvoiceParserFactory("http://localhost:8000");
         PdfTextExtractor pdfTextExtractor = new PdfTextExtractor();
         PdfOcrExtractor pdfOcrExtractor = org.mockito.Mockito.mock(PdfOcrExtractor.class);
 

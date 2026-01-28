@@ -1,6 +1,7 @@
 package com.ella.backend.services.invoices.parsers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +14,51 @@ import org.junit.jupiter.api.Test;
 import com.ella.backend.enums.TransactionType;
 
 class SantanderInvoiceParserTest {
+
+    @Test
+    void rejectsPersonaliteAnchorsEvenWithoutItauWordPresent() {
+        // Simula texto extraído "garbled" que pode perder o header "ITAU",
+        // mas ainda contém âncoras fortes do layout de fatura Itaú.
+        String garbledPersonalite = String.join("\n",
+                "Com vencimento em: 01/12/2025",
+                "Resumo da fatura em R$",
+                "Lanamentos no carto (final 8578)",
+                "Lanamentos: compras e saques",
+                "Total dos lanamentos atuais 3.760,96");
+
+        SantanderInvoiceParser parser = new SantanderInvoiceParser();
+        assertFalse(parser.isApplicable(garbledPersonalite));
+    }
+
+    @Test
+    void rejectsPersonaliteWithUppercase() {
+    String personaliteUppercase = String.join("\n",
+        "ITAU PERSONALITE",
+        "MASTERCARD",
+        "Com vencimento em: 01/12/2025",
+        "Total a Pagar R$ 3.760,96 Vencimento 01/12/2025",
+        "Lançamentos no cartão (final 8578)",
+        "Lançamentos: compras e saques");
+
+    SantanderInvoiceParser parser = new SantanderInvoiceParser();
+    assertFalse(parser.isApplicable(personaliteUppercase),
+        "Santander parser deve REJEITAR Personalité (mesmo com maiúsculo)");
+    }
+
+    @Test
+    void rejectsPersonaliteWithMixedCase() {
+    String personaliteMixed = String.join("\n",
+        "Itaú Personalité",
+        "MasterCard",
+        "Com vencimento em: 01/12/2025",
+        "Total a Pagar R$ 3.760,96 Vencimento 01/12/2025",
+        "Lançamentos no cartão (final 8578)",
+        "Lançamentos: compras e saques");
+
+    SantanderInvoiceParser parser = new SantanderInvoiceParser();
+    assertFalse(parser.isApplicable(personaliteMixed),
+        "Santander parser deve REJEITAR Personalité (mesmo com case misto)");
+    }
 
     @Test
     void parsesHolderBlocksExpensesInstallmentsAndPayments() {
