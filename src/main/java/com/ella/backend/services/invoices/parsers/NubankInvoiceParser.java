@@ -126,9 +126,23 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
 
             String nLine = normalizeForSearch(line);
 
+            boolean isTotalToPayDetailLine = line.startsWith("↳")
+                    || nLine.contains("total a pagar")
+                    || nLine.contains("total e pagar");
+
             // Ignora linhas de detalhe "↳ Total a pagar" / "Total e pagar".
-            if (line.startsWith("↳") || nLine.contains("total a pagar") || nLine.contains("total e pagar")) {
+            // IMPORTANTE: em alguns PDFs, a transação vem em 3 linhas:
+            //   1) <DD> <MON> <DESCRIÇÃO>
+            //   2) Total a pagar: R$ ... (linha de detalhe)
+            //   3) R$ <VALOR> (linha só com valor)
+            // Nesse caso, não podemos descartar a pendência ao ver a linha (2).
+            if (isTotalToPayDetailLine) {
                 System.out.println("[NubankParser] SKIPPED: " + line + " (Total a pagar detail line)");
+
+                if (pending != null) {
+                    // mantém pending e espera a próxima linha com o valor
+                    continue;
+                }
                 continue;
             }
 
@@ -141,6 +155,18 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
 
             // se havia uma transação pendente, tenta consumir uma linha de valor
             if (pending != null) {
+                // Alguns PDFs quebram o bloco "Total a pagar" em múltiplas linhas (ex.: linha com IOF/juros).
+                // Enquanto houver pending, ignoramos essas linhas intermediárias para não descartar a transação.
+                boolean isTotalToPayContinuation = (line.contains("R$") || nLine.contains("r$"))
+                        && (nLine.contains("iof")
+                                || nLine.contains("juros")
+                                || nLine.contains("valor da transacao")
+                                || nLine.contains("valor da transação")
+                                || nLine.contains("valor da trans"));
+                if (isTotalToPayContinuation) {
+                    continue;
+                }
+
                 Matcher amountOnly = amountOnlyPattern.matcher(line);
                 Matcher amountNoCurrencyOnly = amountNoCurrencyOnlyPattern.matcher(line);
                 boolean currencyMatched = amountOnly.matches();
@@ -268,7 +294,19 @@ public class NubankInvoiceParser implements InvoiceParserStrategy {
             if (header.find()) {
                 String maybeDesc = safeTrim(header.group(3));
                 String maybeDescNorm = normalizeForSearch(maybeDesc);
-                if (!maybeDescNorm.contains("pagamento em") && !maybeDescNorm.contains("pagamentos") && !maybeDescNorm.contains("fatura")) {
+                // NOTE: Do NOT block on the word "pagamentos" alone, because it's a common merchant token
+                // (e.g. "GOOGLE BRASIL PAGAMENTOS LTDA."). Only block known non-transaction headers.
+                boolean isPaymentHeader = maybeDescNorm.startsWith("pagamento em")
+                        || maybeDescNorm.startsWith("pagamento recebido")
+                        || maybeDescNorm.startsWith("pagamentos e financiamentos")
+                        || maybeDescNorm.startsWith("pagamentos")
+                        || maybeDescNorm.startsWith("financiamentos");
+                boolean isInvoiceHeader = maybeDescNorm.contains("resumo da fatura")
+                        || maybeDescNorm.equals("transacoes")
+                        || maybeDescNorm.equals("transacoes de")
+                        || maybeDescNorm.startsWith("transacoes de");
+
+                if (!isPaymentHeader && !isInvoiceHeader && !maybeDescNorm.contains("fatura")) {
                     lastDateAnchor = new DateAnchor(header.group(1), header.group(2));
                     pending = new Pending(header.group(1), header.group(2), header.group(3));
                     continue;

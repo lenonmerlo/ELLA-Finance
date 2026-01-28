@@ -12,6 +12,7 @@ import java.util.regex.Pattern;
 
 import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.enums.TransactionType;
+import com.ella.backend.services.invoices.util.NormalizeUtil;
 
 public class BradescoInvoiceParser implements InvoiceParserStrategy {
 
@@ -47,12 +48,38 @@ public class BradescoInvoiceParser implements InvoiceParserStrategy {
     @Override
     public boolean isApplicable(String text) {
         if (text == null || text.isBlank()) return false;
-        String n = normalizeForSearch(text);
-        boolean hasBank = n.contains("bradesco");
-        boolean hasDue = n.contains("vencimento");
-        boolean hasTotal = n.contains("total da fatura");
-        boolean hasLaunch = n.contains("lancamentos") || n.contains("historico de lancamentos");
-        return hasBank && hasDue && (hasTotal || hasLaunch);
+
+        String n = NormalizeUtil.normalize(text);
+
+        // ✅ KEYWORDS FORTES DE BRADESCO (pelo menos 1 deve estar presente)
+        boolean hasBradescoMarker = n.contains("bradesco")
+            || n.contains("banco bradesco")
+            || n.contains("bradesco sa")
+            || n.contains("bradesco s/a")
+            || n.contains("bradesco s.a.");
+
+        // ❌ REJEITAR se tiver markers de OUTRO banco
+        boolean hasItauMarker = n.contains("itau")
+            || n.contains("banco itau")
+            || n.contains("itau unibanco")
+            // PDFBox às vezes "come" letras: "Ita Cares" aparece sem "u".
+            || n.contains("ita cares")
+            || n.contains("itau cares")
+            || n.contains("itacares")
+            || n.contains("itaucares")
+            || n.contains("unibanco")
+            || n.contains("unibanco holding")
+            || n.contains("itau unibanco holding")
+            || n.contains("ita unibanco holding")
+            || n.contains("itaucard")
+            || n.contains("itau card");
+
+        boolean hasSantanderMarker = n.contains("santander");
+        boolean hasNubankMarker = n.contains("nubank");
+
+        // ✅ Bradesco requer marker FORTE de Bradesco
+        // ❌ E deve REJEITAR se tiver marker de outro banco
+        return hasBradescoMarker && !hasItauMarker && !hasSantanderMarker && !hasNubankMarker;
     }
     @Override
     public LocalDate extractDueDate(String text) {

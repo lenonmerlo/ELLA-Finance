@@ -341,7 +341,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
             TransactionData data = parsePdfLine(raw, inferredYear);
             if (data != null) {
                 pending = null;
-                if (section != PdfSection.PAYMENTS || !isPaymentFromPreviousInvoice(data.description)) {
+                if (!shouldDiscardTransaction(data.description)) {
                     transactions.add(data);
                 }
                 continue;
@@ -380,7 +380,7 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
                             null,
                             scope);
                     applyInstallmentInfo(joined, extractInstallmentInfo(pending.description));
-                    if (section != PdfSection.PAYMENTS || !isPaymentFromPreviousInvoice(joined.description)) {
+                    if (!shouldDiscardTransaction(joined.description)) {
                         transactions.add(joined);
                     }
                 } catch (Exception ignored) {
@@ -407,6 +407,26 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
         return transactions;
     }
 
+    private boolean shouldDiscardTransaction(String description) {
+        if (description == null || description.isBlank()) return true;
+
+        String n = normalizeSectionLine(description)
+                .replaceAll("[^a-z0-9 ]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        // Sempre descartamos pagamentos/ajustes que não são compras da fatura (evita poluir o extrato).
+        if (isPaymentFromPreviousInvoice(description)) return true;
+
+        // Linhas-resumo que às vezes aparecem no meio da tabela.
+        if (n.startsWith("total dos pagamentos") || n.contains(" total dos pagamentos")) return true;
+
+        // PDFBox pode gerar uma linha com a descrição sendo apenas o ano (ex.: "20/11/2025 2025 -3.692,62").
+        if (n.matches("^\\d{4}$")) return true;
+
+        return false;
+    }
+
     private boolean isPaymentFromPreviousInvoice(String description) {
         if (description == null || description.isBlank()) return false;
         String n = normalizeSectionLine(description)
@@ -431,7 +451,10 @@ public class ItauInvoiceParser implements InvoiceParserStrategy {
 
     private String normalizeSectionLine(String line) {
         if (line == null) return "";
-        String normalized = Normalizer.normalize(line, Normalizer.Form.NFD)
+        String safe = line.replace('\u00A0', ' ');
+        // PDFBox pode inserir separadores unicode (NBSP e outros \p{Z}) que não casam com \s em Java regex.
+        safe = safe.replaceAll("\\p{Z}+", " ");
+        String normalized = Normalizer.normalize(safe, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "")
                 .toLowerCase()
                 .trim();
