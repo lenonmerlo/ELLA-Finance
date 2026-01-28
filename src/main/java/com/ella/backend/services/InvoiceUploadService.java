@@ -70,10 +70,14 @@ public class InvoiceUploadService {
 
         boolean isPdf = filename.toLowerCase().endsWith(".pdf");
 
-        try (InputStream is = file.getInputStream()) {
+        try {
             List<TransactionData> transactions;
             if (isPdf) {
-                ParsedPdfResult parsed = parsePdfDetailed(is, password, dueDate);
+                byte[] pdfBytes = file.getBytes();
+                log.info("[InvoiceUpload][PDF] filename={} bytes={} contentType={}",
+                        filename, pdfBytes != null ? pdfBytes.length : 0, file.getContentType());
+
+                ParsedPdfResult parsed = parsePdfDetailed(pdfBytes, password, dueDate);
                 transactions = parsed.transactions();
 
                 // Nubank e C6: duplicatas estritamente idênticas podem ser legítimas (ex.: duas compras iguais no mesmo dia).
@@ -81,7 +85,9 @@ public class InvoiceUploadService {
                 boolean allowExactDuplicates = isNubank(parsed) || isC6(parsed);
                 transactions = deduplicateTransactions(transactions, allowExactDuplicates);
             } else {
-                transactions = parseCsv(is);
+                try (InputStream is = file.getInputStream()) {
+                    transactions = parseCsv(is);
+                }
                 transactions = deduplicateTransactions(transactions);
             }
 
@@ -253,12 +259,13 @@ public class InvoiceUploadService {
     }
 
     private List<TransactionData> parsePdf(InputStream inputStream, String password, String dueDateOverride) throws IOException {
-        return parsePdfDetailed(inputStream, password, dueDateOverride).transactions();
+        byte[] pdfBytes = inputStream.readAllBytes();
+        return parsePdfDetailed(pdfBytes, password, dueDateOverride).transactions();
     }
 
-    private ParsedPdfResult parsePdfDetailed(InputStream inputStream, String password, String dueDateOverride) throws IOException {
+    private ParsedPdfResult parsePdfDetailed(byte[] pdfBytes, String password, String dueDateOverride) throws IOException {
         try {
-            ExtractionResult result = extractionPipeline.extractFromPdf(inputStream, password, dueDateOverride);
+            ExtractionResult result = extractionPipeline.extractFromPdfBytes(pdfBytes, password, dueDateOverride);
             List<TransactionData> mapped = new ArrayList<>();
             for (com.ella.backend.services.invoices.parsers.TransactionData p : result.transactions()) {
                 InstallmentInfo installment = (p.installmentNumber != null && p.installmentTotal != null)

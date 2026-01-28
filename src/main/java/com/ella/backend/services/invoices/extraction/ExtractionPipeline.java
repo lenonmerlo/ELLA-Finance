@@ -30,6 +30,7 @@ import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
 import com.ella.backend.services.invoices.parsers.ItauInvoiceParser;
 import com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
 import com.ella.backend.services.invoices.parsers.ParseResult;
+import com.ella.backend.services.invoices.parsers.PdfAwareInvoiceParser;
 import com.ella.backend.services.invoices.parsers.SantanderInvoiceParser;
 import com.ella.backend.services.invoices.parsers.TransactionData;
 import com.ella.backend.services.invoices.quality.ParseQualityEvaluator;
@@ -79,15 +80,24 @@ public class ExtractionPipeline {
     private int dueDateContextChars;
 
     public ExtractionResult extractFromPdf(InputStream inputStream, String password, String dueDateOverride) throws IOException {
-        forceDebugHeader("extractFromPdf");
-        logDebugConfigOnce("extractFromPdf");
-
         byte[] pdfBytes = inputStream.readAllBytes();
+        return extractFromPdfBytes(pdfBytes, password, dueDateOverride);
+    }
+
+    public ExtractionResult extractFromPdfBytes(byte[] pdfBytes, String password, String dueDateOverride) throws IOException {
+        forceDebugHeader("extractFromPdfBytes");
+        logDebugConfigOnce("extractFromPdfBytes");
+
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            throw new IllegalArgumentException("PDF vazio (0 bytes)");
+        }
 
         LocalDate dueDateFromRequest = null;
         if (dueDateOverride != null && !dueDateOverride.isBlank()) {
             dueDateFromRequest = parseDueDateOverrideOrThrow(dueDateOverride);
         }
+
+        log.info("[InvoiceUpload][PDF] Read pdfBytes={} bytes", pdfBytes.length);
 
         try (PDDocument document = (password != null && !password.isBlank())
                 ? PDDocument.load(new ByteArrayInputStream(pdfBytes), password)
@@ -140,7 +150,7 @@ public class ExtractionPipeline {
                     (text.length() > 500 ? text.substring(0, 500) : text));
 
             try {
-                ParseResult parseResult = parsePdfText(text, dueDateFromRequest);
+                ParseResult parseResult = parsePdfText(pdfBytes, text, dueDateFromRequest);
                 List<TransactionData> transactions = parseResult.getTransactions();
 
                 // Diagnostic: if the invoice total is present in the extracted text, log the comparison once.
@@ -163,7 +173,7 @@ public class ExtractionPipeline {
                         log.info("[InvoiceUpload][OCR] Skipping OCR empty-result retry for Itau/C6/Nubank/BB/Bradesco/Santander (disabled for these parsers)");
                     } else {
                         String ocrText = runOcrOrThrow(document);
-                        parseResult = parsePdfText(ocrText, dueDateFromRequest);
+                        parseResult = parsePdfText(pdfBytes, ocrText, dueDateFromRequest);
                         transactions = parseResult.getTransactions();
                         ocrAttempted = true;
                         text = ocrText;
@@ -179,7 +189,7 @@ public class ExtractionPipeline {
                         log.info("[OCR] Trigger: parsed transactions look garbled; retrying once with OCR...");
                         String ocrText = runOcrOrThrow(document);
                         ocrAttempted = true;
-                        ParseResult ocrParseResult = parsePdfText(ocrText, dueDateFromRequest);
+                        ParseResult ocrParseResult = parsePdfText(pdfBytes, ocrText, dueDateFromRequest);
                         List<TransactionData> ocrTransactions = ocrParseResult.getTransactions();
                         if (isOcrResultBetter(ocrTransactions, transactions)) {
                             logInvoiceTotalValidation("OCR", ocrText, ocrTransactions);
@@ -198,7 +208,7 @@ public class ExtractionPipeline {
                         try {
                             String sortedText = pdfTextExtractor.extractTextSorted(document);
                             if (sortedText != null && !sortedText.isBlank()) {
-                                ParseResult sortedParseResult = parsePdfText(sortedText, dueDateFromRequest);
+                                ParseResult sortedParseResult = parsePdfText(pdfBytes, sortedText, dueDateFromRequest);
                                 List<TransactionData> sortedTransactions = sortedParseResult.getTransactions();
 
                                 BigDecimal expected = extractInvoiceExpectedTotal(text);
@@ -219,7 +229,7 @@ public class ExtractionPipeline {
                         log.info("[OCR] Trigger: possible missing transactions (total mismatch); retrying once with OCR...");
                         String ocrText = runOcrOrThrow(document);
                         ocrAttempted = true;
-                        ParseResult ocrParseResult = parsePdfText(ocrText, dueDateFromRequest);
+                        ParseResult ocrParseResult = parsePdfText(pdfBytes, ocrText, dueDateFromRequest);
                         List<TransactionData> ocrTransactions = ocrParseResult.getTransactions();
 
                         BigDecimal expected = extractInvoiceExpectedTotal(text);
@@ -248,7 +258,7 @@ public class ExtractionPipeline {
                     ocrAttempted = true;
                     String ocrText = runOcrOrThrow(document);
                     logDueDateSignalsIfEnabled("OCR-retry", ocrText);
-                    ParseResult ocrParseResult = parsePdfText(ocrText, dueDateFromRequest);
+                    ParseResult ocrParseResult = parsePdfText(pdfBytes, ocrText, dueDateFromRequest);
                     List<TransactionData> parsed = ocrParseResult.getTransactions();
                     logInvoiceTotalValidation("OCR", ocrText, parsed);
                     return finalizeResultWithAdobeFallback(ocrParseResult, ocrText, "OCR", true, pdfBytes, dueDateFromRequest);
@@ -325,7 +335,7 @@ public class ExtractionPipeline {
 
             if (adobeText != null && !adobeText.isBlank()) {
                 try {
-                    adobeParse = parsePdfText(adobeText, dueDateFromRequest);
+                    adobeParse = parsePdfText(pdfBytes, adobeText, dueDateFromRequest);
                     adobeParse = applyQualityScore(adobeParse, adobeText, "Adobe");
                     adobeScore = adobeParse.getQualityScore();
                     log.info("[ExtractionPipeline] Adobe parsing concluído com score: {}", adobeScore);
@@ -789,7 +799,7 @@ public class ExtractionPipeline {
         }
     }
 
-    private ParseResult parsePdfText(String text, LocalDate dueDateFromRequest) {
+    private ParseResult parsePdfText(byte[] pdfBytes, String text, LocalDate dueDateFromRequest) {
         String t = text == null ? "" : text;
 
         InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(invoiceParserFactory.getParsers(), t);
@@ -797,6 +807,22 @@ public class ExtractionPipeline {
         InvoiceParserStrategy parser = chosen.parser();
 
         LocalDate dueDate = chosen.dueDate();
+        List<TransactionData> transactions = chosen.transactions();
+
+        if (parser instanceof PdfAwareInvoiceParser pdfAware) {
+            // Isolated branch: only for parsers that explicitly support PDF-aware parsing.
+            try {
+                ParseResult pdfParse = pdfAware.parseWithPdf(pdfBytes, t);
+                if (pdfParse != null && pdfParse.getDueDate() != null) {
+                    dueDate = pdfParse.getDueDate();
+                }
+                if (pdfParse != null && pdfParse.getTransactions() != null && !pdfParse.getTransactions().isEmpty()) {
+                    transactions = pdfParse.getTransactions();
+                }
+            } catch (Exception e) {
+                log.warn("[InvoiceUpload] Pdf-aware parse failed, falling back to text parser. reason={}", e.toString());
+            }
+        }
         if (dueDate == null) {
             log.warn("[InvoiceUpload] Parser={} matched but dueDate was not found by parser. Trying fallback extractor...",
                     parser.getClass().getSimpleName());
@@ -815,7 +841,7 @@ public class ExtractionPipeline {
             );
         }
 
-        List<TransactionData> transactions = chosen.transactions() != null ? chosen.transactions() : parser.extractTransactions(t);
+        transactions = transactions != null ? transactions : parser.extractTransactions(t);
         for (TransactionData tx : transactions) {
             if (tx == null) continue;
             tx.setDueDate(dueDate);
