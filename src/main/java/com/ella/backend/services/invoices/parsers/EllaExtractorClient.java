@@ -3,6 +3,8 @@ package com.ella.backend.services.invoices.parsers;
 import java.time.Duration;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -13,9 +15,6 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
@@ -50,6 +49,7 @@ public class EllaExtractorClient {
         String url = (baseUrl != null && !baseUrl.isBlank()) ? baseUrl.trim() : DEFAULT_BASE_URL;
         if (url.endsWith("/")) url = url.substring(0, url.length() - 1);
         this.baseUrl = url;
+        log.info("[EllaExtractorClient] Configured baseUrl={}", this.baseUrl);
     }
 
     public ItauPersonnaliteResponse parseItauPersonnalite(byte[] pdfBytes) {

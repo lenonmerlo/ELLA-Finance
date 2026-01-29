@@ -3,15 +3,20 @@ package com.ella.backend.services.invoices.parsers;
 import java.util.List;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class InvoiceParserFactory {
 
+    private static final Logger log = LoggerFactory.getLogger(InvoiceParserFactory.class);
+
     private final List<InvoiceParserStrategy> parsers;
 
     public InvoiceParserFactory(@Value("${ella.extractor.base-url:http://localhost:8000}") String ellaExtractorBaseUrl) {
+        log.info("[InvoiceParserFactory] Using ella.extractor.base-url={}", ellaExtractorBaseUrl);
         this.parsers = List.of(
                 // More specific parsers first
                 new ItauPersonaliteInvoiceParser(new EllaExtractorClient(ellaExtractorBaseUrl)),

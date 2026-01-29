@@ -67,6 +67,7 @@ public class AuthController {
 
         AuthResponseDTO authResponse = AuthResponseDTO.builder()
             .token(token)
+            .refreshToken(refresh)
             .tokenType("Bearer")
             .expiresIn(jwtService.getExpirationMillis())
             .build();
@@ -89,8 +90,12 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<AuthResponseDTO>> refresh(HttpServletRequest request, HttpServletResponse response) {
-        // read refresh cookie
+    public ResponseEntity<ApiResponse<AuthResponseDTO>> refresh(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            @RequestHeader(value = "Authorization", required = false) String authHeader
+    ) {
+        // Prefer cookie refresh token (HttpOnly), but accept Authorization Bearer for SPA clients.
         String refreshToken = null;
         if (request.getCookies() != null) {
             for (Cookie c : request.getCookies()) {
@@ -99,6 +104,10 @@ public class AuthController {
                     break;
                 }
             }
+        }
+
+        if ((refreshToken == null || refreshToken.isBlank()) && authHeader != null && authHeader.startsWith("Bearer ")) {
+            refreshToken = authHeader.substring(7);
         }
 
         if (refreshToken == null) {
@@ -131,6 +140,7 @@ public class AuthController {
 
         AuthResponseDTO authResponse = AuthResponseDTO.builder()
                 .token(newAccess)
+            .refreshToken(newRefresh)
                 .tokenType("Bearer")
                 .expiresIn(jwtService.getExpirationMillis())
                 .build();
