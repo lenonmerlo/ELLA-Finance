@@ -80,15 +80,16 @@ public class InvoiceUploadService {
                 ParsedPdfResult parsed = parsePdfDetailed(pdfBytes, password, dueDate);
                 transactions = parsed.transactions();
 
-                // Nubank e C6: duplicatas estritamente idênticas podem ser legítimas (ex.: duas compras iguais no mesmo dia).
-                // Portanto, não removemos "exact duplicates" automaticamente para esses bancos.
-                boolean allowExactDuplicates = isNubank(parsed) || isC6(parsed);
-                transactions = deduplicateTransactions(transactions, allowExactDuplicates);
+                // Importante (design): NÃO deduplicamos transações no pós-processamento do upload.
+                // Entradas idênticas podem representar compras legítimas repetidas.
+                // Aqui apenas removemos linhas nulas (se existirem).
+                transactions = deduplicateTransactions(transactions, true);
             } else {
                 try (InputStream is = file.getInputStream()) {
                     transactions = parseCsv(is);
                 }
-                transactions = deduplicateTransactions(transactions);
+                // Mesma regra para CSV: preservar entradas idênticas; limpar apenas nulos.
+                transactions = deduplicateTransactions(transactions, true);
             }
 
             if (transactions == null || transactions.isEmpty()) {

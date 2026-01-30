@@ -95,6 +95,49 @@ public class EllaExtractorClient {
         }
     }
 
+    public SicrediResponse parseSicredi(byte[] pdfBytes) {
+        if (pdfBytes == null || pdfBytes.length == 0) {
+            throw new IllegalArgumentException("pdfBytes is empty");
+        }
+
+        String magic = pdfBytes.length >= 4
+                ? new String(new byte[] { pdfBytes[0], pdfBytes[1], pdfBytes[2], pdfBytes[3] }, java.nio.charset.StandardCharsets.US_ASCII)
+                : "";
+        log.info("[EllaExtractorClient] Sending Sicredi PDF bytes={} magic={} url={}", pdfBytes.length, magic, baseUrl);
+
+        String url = baseUrl + "/parse/sicredi";
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        ByteArrayResource resource = new ByteArrayResource(pdfBytes) {
+            @Override
+            public String getFilename() {
+                return "invoice.pdf";
+            }
+        };
+
+        HttpHeaders partHeaders = new HttpHeaders();
+        partHeaders.setContentType(MediaType.APPLICATION_PDF);
+        HttpEntity<ByteArrayResource> filePart = new HttpEntity<>(resource, partHeaders);
+        body.add("file", filePart);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+
+        try {
+            ResponseEntity<SicrediResponse> response = restTemplate.postForEntity(url, request, SicrediResponse.class);
+            SicrediResponse parsed = response.getBody();
+            if (parsed == null) {
+                throw new IllegalStateException("ella-extractor returned empty body");
+            }
+            return parsed;
+        } catch (HttpStatusCodeException e) {
+            String payload = e.getResponseBodyAsString();
+            String msg = "ella-extractor error (Sicredi) status=" + e.getStatusCode() + " body=" + (payload != null && payload.length() > 500 ? payload.substring(0, 500) : payload);
+            throw new RuntimeException(msg, e);
+        }
+    }
+
     private static RestTemplate createDefaultRestTemplate() {
         SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
         f.setConnectTimeout((int) TIMEOUT.toMillis());
@@ -105,6 +148,28 @@ public class EllaExtractorClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ItauPersonnaliteResponse(
+            String bank,
+            String dueDate,
+            Double total,
+            List<Tx> transactions
+    ) {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Tx(
+                String date,
+                String description,
+                Double amount,
+                String cardFinal,
+                Installment installment
+        ) {
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Installment(Integer current, Integer total) {
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SicrediResponse(
             String bank,
             String dueDate,
             Double total,

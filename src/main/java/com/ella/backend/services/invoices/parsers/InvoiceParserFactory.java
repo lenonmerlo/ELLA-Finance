@@ -17,13 +17,14 @@ public class InvoiceParserFactory {
 
     public InvoiceParserFactory(@Value("${ella.extractor.base-url:http://localhost:8000}") String ellaExtractorBaseUrl) {
         log.info("[InvoiceParserFactory] Using ella.extractor.base-url={}", ellaExtractorBaseUrl);
+        EllaExtractorClient extractorClient = new EllaExtractorClient(ellaExtractorBaseUrl);
         this.parsers = List.of(
                 // More specific parsers first
-                new ItauPersonaliteInvoiceParser(new EllaExtractorClient(ellaExtractorBaseUrl)),
+            new ItauPersonaliteInvoiceParser(extractorClient),
                 new ItauInvoiceParser(),
                 new BradescoInvoiceParser(),
                 new BancoDoBrasilInvoiceParser(),
-                new SicrediInvoiceParser(),
+            new SicrediExtractorParser(extractorClient),
                 new MercadoPagoInvoiceParser(),
                 new NubankInvoiceParser(),
                 new C6InvoiceParser(),
