@@ -15,6 +15,7 @@ import com.ella.backend.dto.BankStatementUploadResponseDTO;
 import com.ella.backend.entities.BankStatement;
 import com.ella.backend.entities.BankStatementTransaction;
 import com.ella.backend.repositories.BankStatementRepository;
+import com.ella.backend.services.bankstatements.extractor.C6BankStatementExtractorClient;
 import com.ella.backend.services.bankstatements.parsers.ItauBankStatementParser;
 import com.ella.backend.services.ocr.PdfTextExtractor;
 
@@ -37,6 +38,7 @@ public class BankStatementUploadService {
 
     private final BankStatementRepository bankStatementRepository;
     private final PdfTextExtractor pdfTextExtractor;
+    private final C6BankStatementExtractorClient c6ExtractorClient;
 
     @Transactional
     public BankStatementUploadResponseDTO uploadItauPdf(MultipartFile file, UUID userId, String password) {
@@ -168,6 +170,96 @@ public class BankStatementUploadService {
             System.err.println("[UPLOAD_DEBUG] BankStatement salvo com ID: " + saved.getId());
         }
 
+        return BankStatementUploadResponseDTO.from(saved);
+    }
+
+    @Transactional
+    public BankStatementUploadResponseDTO uploadC6Pdf(MultipartFile file, UUID userId) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Arquivo ausente ou vazio");
+        }
+        if (userId == null) {
+            throw new IllegalArgumentException("Usuário inválido");
+        }
+
+        String filename = file.getOriginalFilename();
+        if (filename == null || !filename.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf")) {
+            throw new IllegalArgumentException("Somente PDF é suportado para extrato bancário C6");
+        }
+
+        byte[] pdfBytes;
+        try (InputStream is = file.getInputStream()) {
+            pdfBytes = is.readAllBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("Falha ao ler arquivo PDF", e);
+        }
+
+        C6BankStatementExtractorClient.C6BankStatementResponse parsed = c6ExtractorClient.parseC6BankStatement(pdfBytes);
+
+        if (parsed == null || parsed.transactions() == null || parsed.transactions().isEmpty()) {
+            String reason = parsed != null ? parsed.reason() : null;
+            if (reason == null || reason.isBlank()) {
+                reason = "UNSUPPORTED_LAYOUT";
+            }
+            throw new IllegalArgumentException("Extrato C6 não suportado (" + reason + ")");
+        }
+
+        BankStatement statement = new BankStatement();
+        statement.setUserId(userId);
+        statement.setBank("C6");
+        statement.setStatementDate(parsed.statementDateAsLocalDate());
+        statement.setOpeningBalance(nz(parsed.openingBalanceAsBigDecimal()));
+        statement.setClosingBalance(nz(parsed.closingBalanceAsBigDecimal()));
+        statement.setCreditLimit(BigDecimal.ZERO);
+        statement.setAvailableLimit(BigDecimal.ZERO);
+
+        boolean debug = isParserDebugEnabled();
+        int persisted = 0;
+
+        for (var tx : parsed.transactions()) {
+            if (tx == null) continue;
+
+            BankStatementTransaction.Type type = tx.typeAsEnumOrNull();
+            if (type == null) {
+                String desc = tx.description() != null ? tx.description() : "";
+                String normalized = desc.toUpperCase(java.util.Locale.ROOT);
+                boolean hasNegativeMarker = normalized.contains("-R$") || normalized.contains("- R$");
+                boolean hasPositiveMarker = normalized.contains(" R$") || normalized.contains("R$");
+                if (hasNegativeMarker) {
+                    type = BankStatementTransaction.Type.DEBIT;
+                } else if (hasPositiveMarker) {
+                    type = BankStatementTransaction.Type.CREDIT;
+                }
+            }
+            if (type == BankStatementTransaction.Type.BALANCE) {
+                if (debug) {
+                    System.err.println("[UPLOAD_DEBUG] Ignorando BALANCE (C6): " + tx.description());
+                }
+                continue;
+            }
+
+            BigDecimal amount = nz(tx.amountAsBigDecimal());
+            if (type == BankStatementTransaction.Type.DEBIT) {
+                if (amount.signum() > 0) amount = amount.negate();
+            } else if (type == BankStatementTransaction.Type.CREDIT) {
+                if (amount.signum() < 0) amount = amount.abs();
+            }
+
+            BankStatementTransaction entity = new BankStatementTransaction();
+            entity.setTransactionDate(tx.transactionDateAsLocalDate());
+            entity.setDescription(tx.description() == null ? "" : tx.description());
+            entity.setType(type == null ? BankStatementTransaction.Type.DEBIT : type);
+            entity.setAmount(amount);
+            entity.setBalance(nz(tx.balanceAsBigDecimal()));
+
+            statement.addTransaction(entity);
+            persisted++;
+        }
+
+        log.info("[BankStatementUpload][C6] parsed statementDate={} opening={} closing={} persistedTxCount={}",
+                statement.getStatementDate(), statement.getOpeningBalance(), statement.getClosingBalance(), persisted);
+
+        BankStatement saved = bankStatementRepository.save(statement);
         return BankStatementUploadResponseDTO.from(saved);
     }
 

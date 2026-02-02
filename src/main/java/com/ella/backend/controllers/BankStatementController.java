@@ -29,6 +29,7 @@ public class BankStatementController {
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<BankStatementUploadResponseDTO>> upload(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "bank", required = false) String bank,
             @RequestParam(value = "password", required = false) String password,
             Authentication authentication
     ) {
@@ -38,7 +39,14 @@ public class BankStatementController {
 
         try {
             CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
-            var payload = bankStatementUploadService.uploadItauPdf(file, principal.getId(), password);
+
+            String bankNormalized = (bank == null || bank.isBlank()) ? "ITAU" : bank.trim().toUpperCase(java.util.Locale.ROOT);
+            var payload = switch (bankNormalized) {
+                case "ITAU" -> bankStatementUploadService.uploadItauPdf(file, principal.getId(), password);
+                case "C6" -> bankStatementUploadService.uploadC6Pdf(file, principal.getId());
+                default -> throw new IllegalArgumentException("Banco não suportado para extrato: " + bankNormalized);
+            };
+
             return ResponseEntity.status(201).body(ApiResponse.success(payload, "Extrato enviado com sucesso"));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
