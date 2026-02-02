@@ -57,20 +57,21 @@ class ExtractionPipelineAdobeFallbackTest {
         }
     }
 
-    private static String mercadoPagoText(String marker) {
+    private static String itauText(String marker) {
         return String.join("\n",
                 marker,
-                "Mercado Pago",
-                "Essa é sua fatura de dezembro",
-                "Total a pagar",
-                "R$ 2.449,67",
-                "Vence em",
-                "23/12/2025",
+                "Banco Itaú",
+                "Itaucard",
+                "Resumo da fatura",
+                "Total desta fatura",
+                "Pagamento mínimo",
+                "Vencimento: 23/12/2025",
                 "",
-                "Lançamentos",
-                "17/12 UBER TRIP 18,40",
-                "18/12 PAGAMENTO DA FATURA -100,00",
-                "19/12 IFD*IFD*COMERCIO DE 120,90"
+                "Pagamentos efetuados",
+                "21/11/2025 PAGAMENTO EFETUADO -100,00",
+                "",
+                "Lançamentos: compras e saques",
+                "17/12 UBER TRIP 18,40"
         );
     }
 
@@ -111,7 +112,7 @@ class ExtractionPipelineAdobeFallbackTest {
 
     @Test
     void pdfBom_naoTentaAdobe() throws Exception {
-        String text = mercadoPagoText(PDFBOX_MARKER);
+        String text = itauText(PDFBOX_MARKER);
         byte[] pdfBytes = pdfWithText(text);
 
         ParseQualityEvaluator evaluator = org.mockito.Mockito.mock(ParseQualityEvaluator.class);
@@ -132,8 +133,8 @@ class ExtractionPipelineAdobeFallbackTest {
 
     @Test
     void pdfRuim_adobeMelhora_escolheAdobe() throws Exception {
-        String pdfboxText = mercadoPagoText(PDFBOX_MARKER);
-        String adobeText = mercadoPagoText(ADOBE_MARKER);
+        String pdfboxText = itauText(PDFBOX_MARKER);
+        String adobeText = itauText(ADOBE_MARKER);
 
         byte[] pdfBytes = pdfWithText(pdfboxText);
 
@@ -163,7 +164,7 @@ class ExtractionPipelineAdobeFallbackTest {
 
     @Test
     void pdfRuim_adobeFalha_usarPdfBoxMesmoAssim() throws Exception {
-        String pdfboxText = mercadoPagoText(PDFBOX_MARKER);
+        String pdfboxText = itauText(PDFBOX_MARKER);
         byte[] pdfBytes = pdfWithText(pdfboxText);
 
         ParseQualityEvaluator evaluator = org.mockito.Mockito.mock(ParseQualityEvaluator.class);

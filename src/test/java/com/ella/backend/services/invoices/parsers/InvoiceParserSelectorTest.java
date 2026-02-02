@@ -134,11 +134,8 @@ class InvoiceParserSelectorTest {
                 "19/12 IFD*IFD*COMERCIO DE 120,90"
         );
 
+        // Mercado Pago support disabled (safe removal): we should not select any parser.
         InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
-        InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
-
-        assertEquals("MercadoPagoInvoiceParser", selection.chosen().parser().getClass().getSimpleName());
-        assertTrue(selection.chosen().applicable());
-        assertTrue(selection.chosen().txCount() > 0);
+        assertTrue(factory.getParser(text).isEmpty());
     }
 }

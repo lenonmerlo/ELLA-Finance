@@ -110,6 +110,15 @@ public class ExtractionPipeline {
             String text = pdfTextExtractor.extractText(document);
             text = text == null ? "" : text;
 
+            // Safe removal: Mercado Pago invoices are intentionally not supported.
+            // Detect early (before baseline parser selection) to avoid misleading parser/due-date errors.
+            if (looksLikeMercadoPagoInvoice(text)) {
+                throw new com.ella.backend.services.invoices.InvoiceParsingException(
+                        "Ainda não suportamos faturas do Mercado Pago. " +
+                                "Envie a fatura de outro banco/cartão ou tente novamente mais tarde."
+                );
+            }
+
             // Identifica o parser baseado no texto do PDFBox para decidir políticas específicas.
             InvoiceParserStrategy baselineParser = null;
             try {
@@ -802,6 +811,15 @@ public class ExtractionPipeline {
     private ParseResult parsePdfText(byte[] pdfBytes, String text, LocalDate dueDateFromRequest) {
         String t = text == null ? "" : text;
 
+        // Safe removal: Mercado Pago invoices are intentionally not supported.
+        // Detect them early to avoid false parser selection (e.g., Banco do Brasil) and confusing errors.
+        if (looksLikeMercadoPagoInvoice(t)) {
+            throw new com.ella.backend.services.invoices.InvoiceParsingException(
+                    "Ainda não suportamos faturas do Mercado Pago. " +
+                            "Envie a fatura de outro banco/cartão ou tente novamente mais tarde."
+            );
+        }
+
         InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(invoiceParserFactory.getParsers(), t);
         InvoiceParserSelector.Candidate chosen = selection.chosen();
         InvoiceParserStrategy parser = chosen.parser();
@@ -903,6 +921,30 @@ public class ExtractionPipeline {
             .totalAmount(totalAmount)
             .bankName(parser.getClass().getSimpleName())
             .build();
+    }
+
+    private static boolean looksLikeMercadoPagoInvoice(String text) {
+        if (text == null || text.isBlank()) return false;
+
+        String n = com.ella.backend.services.invoices.util.NormalizeUtil.normalize(text)
+            .replaceAll("\\s+", " ")
+            .trim();
+
+        // Avoid false positives from merchant lines like "MERCADOPAGO *XYZ" inside other banks.
+        boolean hasBrand = n.contains("mercado pago") || n.contains("mercadopago");
+        if (!hasBrand) return false;
+
+        boolean hasInvoiceWording = n.contains("essa e sua fatura") || n.contains("esta e sua fatura") || n.contains("sua fatura");
+        boolean hasDueWording = n.contains("vence em") || n.contains("vencimento");
+        boolean hasTotalWording = n.contains("total a pagar") || (n.contains("total") && n.contains("pagar"));
+
+        // Require at least 2 invoice-context markers in addition to the brand.
+        int ctx = 0;
+        if (hasInvoiceWording) ctx++;
+        if (hasDueWording) ctx++;
+        if (hasTotalWording) ctx++;
+
+        return ctx >= 2;
     }
 
     private LocalDate parseDueDateOverrideOrThrow(String dueDate) {
