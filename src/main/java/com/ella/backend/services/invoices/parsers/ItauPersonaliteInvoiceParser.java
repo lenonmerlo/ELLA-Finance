@@ -138,11 +138,15 @@ public class ItauPersonaliteInvoiceParser implements InvoiceParserStrategy, PdfA
         // também aparecem em fatura Itaú REGULAR.
         // Para não roubar Itaú regular, o Personalité precisa de evidência mais específica:
         // - múltiplos cartões / "final 1234" (layout típico Personalité), OU
-        // - marcadores premium muito fortes (ex.: "visa infinite" / "mastercard black"), OU
+        // - marcadores premium muito fortes (ex.: "visa infinite" / "mastercard black") *quando combinado*
+        //   com evidência de layout Personalité (ex.: "final 1234") ou marca corporativa (Ita Cares), OU
         // - "personalite/personnalite" explícito.
         int personaliteLayoutCount = 0;
         if (hasMultipleCards) personaliteLayoutCount++;
-        if (hasPremiumCardMarker) personaliteLayoutCount++;
+        // IMPORTANT: Premium markers alone are not enough. Regular Itaú invoices can contain "Infinite".
+        // We only count premium markers when we already have other strong evidence.
+        if (hasItauCares || hasUnibancoHolding) personaliteLayoutCount++;
+        if (hasPremiumCardMarker && personaliteLayoutCount > 0) personaliteLayoutCount++;
 
         boolean hasAnyInvoiceLayout = hasResumoFatura
             || hasParcelamentoFatura
@@ -156,7 +160,7 @@ public class ItauPersonaliteInvoiceParser implements InvoiceParserStrategy, PdfA
         // Caso real: PDFBox pode não extrair o "ITAU" do header.
         // Sem marcador de banco, aceitamos se houver evidência forte de Personalité (ex.: "final 1234"),
         // caso contrário exigimos mais de um indício.
-        int requiredPersonaliteLayout = hasItauMarker ? 1 : ((hasMultipleCards || hasPremiumCardMarker) ? 1 : 2);
+        int requiredPersonaliteLayout = hasItauMarker ? 1 : ((hasMultipleCards || hasItauCares || hasUnibancoHolding) ? 1 : 2);
         boolean personaliteLayoutMatch = personaliteLayoutCount >= requiredPersonaliteLayout;
 
         boolean result;

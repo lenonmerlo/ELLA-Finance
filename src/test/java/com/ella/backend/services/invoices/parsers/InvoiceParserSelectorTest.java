@@ -61,6 +61,35 @@ class InvoiceParserSelectorTest {
     }
 
     @Test
+    void selectsItauRegularEvenWhenInvoiceContainsInfiniteMarker() {
+        // Regression: regular Itaú invoices can contain "Infinite" but are not Personalité.
+        String text = String.join("\n",
+                "ITAU UNIBANCO S.A.",
+                "Resumo da fatura em R$",
+                "Total desta fatura 2.005,92",
+                "Pagamento mínimo:",
+                "R$ 200,59",
+                "Vencimento: 22/12/2025",
+                "Infinite",
+                "Pagamentos efetuados",
+                "21/11 PAGAMENTO DEB AUTOMATIC -3.692,62",
+                "Lançamentos: compras e saques",
+                "15/10 CLINICA SCHUNK 02/05 720,00",
+                "28/08 OTICA PARIS F6 04/10 83,92",
+                "21/08 CLINICA SCHUNK 04/05 720,00",
+                "22/01 BT SHOP VITORI 11/12 482,00",
+                "Compras parceladas - próximas faturas",
+                "22/01 BT SHOP VITORI 12/12 482,00");
+
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
+        InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
+
+        assertEquals("ItauInvoiceParser", selection.chosen().parser().getClass().getSimpleName());
+        assertTrue(selection.chosen().applicable());
+        assertEquals(4, selection.chosen().txCount());
+    }
+
+    @Test
     void selectsBradescoForBradescoTextEvenThoughMercadoPagoRegexCouldMatchLines() {
         String text = String.join("\n",
                 "BRADESCO",

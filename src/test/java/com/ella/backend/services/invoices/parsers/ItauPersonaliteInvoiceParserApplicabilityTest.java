@@ -112,4 +112,25 @@ class ItauPersonaliteInvoiceParserApplicabilityTest {
 
         assertFalse(parser.isApplicable(text));
     }
+
+    @Test
+    void rejectsRegularItauInvoiceThatContainsOnlyPremiumCardMarker() {
+        ItauPersonaliteInvoiceParser parser = new ItauPersonaliteInvoiceParser();
+
+        // Regression: regular Itaú invoices can contain "Infinite"/"Visa Infinite" but are not Personalité.
+        // Without explicit Personalité token and without "final 1234" / "Ita Cares" markers,
+        // the Personalité parser must not steal the invoice.
+        String text = String.join("\n",
+                "ITAU UNIBANCO S.A.",
+                "Resumo da fatura em R$",
+                "Lançamentos atuais 2.005,92",
+                "Pagamento mínimo: R$ 200,59",
+                "Vencimento: 22/12/2025",
+                "Infinite",
+                "Lançamentos: compras e saques",
+                "15/10 CLINICA SCHUNK 02/05 720,00"
+        );
+
+        assertFalse(parser.isApplicable(text));
+    }
 }
