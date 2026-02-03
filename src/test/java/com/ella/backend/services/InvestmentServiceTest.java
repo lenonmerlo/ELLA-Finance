@@ -39,6 +39,9 @@ class InvestmentServiceTest {
     @Mock
     private PersonRepository personRepository;
 
+    @Mock
+    private AssetSyncService assetSyncService;
+
     @InjectMocks
     private InvestmentService investmentService;
 
@@ -63,6 +66,7 @@ class InvestmentServiceTest {
         assertNotNull(resp.getId());
         assertEquals(new BigDecimal("10.00"), resp.getProfitability());
         verify(investmentRepository).save(any(Investment.class));
+        verify(assetSyncService).upsertFromInvestment(any(Investment.class));
     }
 
     @Test
@@ -98,6 +102,7 @@ class InvestmentServiceTest {
 
         assertEquals(new BigDecimal("-20.00"), resp.getProfitability());
         verify(investmentRepository).save(any(Investment.class));
+        verify(assetSyncService).upsertFromInvestment(any(Investment.class));
     }
 
     @Test

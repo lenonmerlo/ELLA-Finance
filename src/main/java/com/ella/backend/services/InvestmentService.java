@@ -31,6 +31,7 @@ public class InvestmentService {
 
     private final InvestmentRepository investmentRepository;
     private final PersonRepository personRepository;
+    private final AssetSyncService assetSyncService;
 
     public InvestmentResponse create(String personId, InvestmentRequest request) {
         Person person = findPersonOrThrow(personId);
@@ -38,10 +39,12 @@ public class InvestmentService {
 
         Investment investment = new Investment();
         investment.setOwner(person);
+        investment.setExcludedFromAssets(false);
         applyRequest(investment, request);
         investment.setProfitability(calculateProfitability(investment.getInitialValue(), investment.getCurrentValue()));
 
         Investment saved = investmentRepository.save(investment);
+        assetSyncService.upsertFromInvestment(saved);
         return toResponse(saved);
     }
 
@@ -89,6 +92,7 @@ public class InvestmentService {
         investment.setProfitability(calculateProfitability(investment.getInitialValue(), investment.getCurrentValue()));
 
         Investment saved = investmentRepository.save(investment);
+        assetSyncService.upsertFromInvestment(saved);
         return toResponse(saved);
     }
 
@@ -96,6 +100,8 @@ public class InvestmentService {
         UUID uuid = parseUuid(investmentId, "investmentId");
         Investment investment = investmentRepository.findById(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Investimento não encontrado"));
+
+        assetSyncService.deleteForInvestment(investment.getId());
         investmentRepository.delete(investment);
     }
 

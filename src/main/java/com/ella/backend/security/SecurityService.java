@@ -18,6 +18,7 @@ import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.InvestmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.repositories.AssetRepository;
 import com.ella.backend.services.UserService;
 
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class SecurityService {
     private final ExpenseRepository expenseRepository;
     private final BudgetRepository budgetRepository;
     private final InvestmentRepository investmentRepository;
+    private final AssetRepository assetRepository;
 
     // =========================================================
     // Helpers centrais
@@ -256,6 +258,31 @@ public class SecurityService {
     }
 
     public boolean canAccessInvestmentsOfPerson(String personId) {
+        return canAccessPerson(personId);
+    }
+
+    // =========================================================
+    // Asset
+    // =========================================================
+
+    public boolean canAccessAsset(String assetId) {
+        User user = getAuthenticatedUserOrThrow();
+        if (isAdmin(user)) return true;
+
+        try {
+            UUID uuid = UUID.fromString(assetId);
+            return assetRepository.findById(uuid)
+                    .map(asset ->
+                            asset.getOwner() != null &&
+                                    asset.getOwner().getId().equals(user.getId())
+                    )
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    public boolean canAccessAssetsOfPerson(String personId) {
         return canAccessPerson(personId);
     }
 

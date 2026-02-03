@@ -9,14 +9,14 @@ import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Goal;
 import com.ella.backend.entities.Person;
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
-
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 
 class ReducibleSpendingGoalProviderTest {
 

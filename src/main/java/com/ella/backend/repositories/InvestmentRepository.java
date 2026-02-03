@@ -14,5 +14,7 @@ import com.ella.backend.entities.Person;
 public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
     List<Investment> findByOwner(Person owner);
 
+    List<Investment> findByOwnerAndExcludedFromAssetsFalse(Person owner);
+
     Optional<Investment> findByIdAndOwner(UUID id, Person owner);
 }

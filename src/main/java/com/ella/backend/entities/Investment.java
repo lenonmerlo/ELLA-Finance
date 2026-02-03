@@ -69,6 +69,9 @@ public class Investment {
     @Column(length = 500)
     private String description;
 
+        @Column(name = "excluded_from_assets", nullable = false)
+        private boolean excludedFromAssets;
+
     @Column(nullable = false, precision = 5, scale = 2)
     private BigDecimal profitability;
 
