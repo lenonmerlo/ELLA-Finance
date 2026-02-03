@@ -144,6 +144,13 @@
 			<version>2.0.29</version>
 		</dependency>
 
+		<!-- ==== HTML -> PDF (for reports) ==== -->
+		<dependency>
+			<groupId>com.openhtmltopdf</groupId>
+			<artifactId>openhtmltopdf-pdfbox</artifactId>
+			<version>1.0.10</version>
+		</dependency>
+
 		<!-- ==== OCR (Tesseract via Tess4J) ==== -->
 		<dependency>
 			<groupId>net.sourceforge.tess4j</groupId>

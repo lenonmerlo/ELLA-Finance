@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import com.ella.backend.entities.User;
 import com.ella.backend.enums.Role;
+import com.ella.backend.repositories.AssetRepository;
 import com.ella.backend.repositories.BudgetRepository;
 import com.ella.backend.repositories.CompanyRepository;
 import com.ella.backend.repositories.CreditCardRepository;
@@ -18,7 +19,6 @@ import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.InvestmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
 import com.ella.backend.repositories.PersonRepository;
-import com.ella.backend.repositories.AssetRepository;
 import com.ella.backend.services.UserService;
 
 import lombok.RequiredArgsConstructor;

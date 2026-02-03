@@ -11,7 +11,6 @@ import com.ella.backend.dto.asset.AssetRequest;
 import com.ella.backend.dto.asset.AssetResponse;
 import com.ella.backend.dto.asset.AssetTotalValueResponse;
 import com.ella.backend.entities.Asset;
-import com.ella.backend.entities.Investment;
 import com.ella.backend.entities.Person;
 import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
