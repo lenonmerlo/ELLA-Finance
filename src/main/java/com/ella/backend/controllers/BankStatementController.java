@@ -44,6 +44,7 @@ public class BankStatementController {
             var payload = switch (bankNormalized) {
                 case "ITAU" -> bankStatementUploadService.uploadItauPdf(file, principal.getId(), password);
                 case "C6" -> bankStatementUploadService.uploadC6Pdf(file, principal.getId());
+                case "NUBANK", "NU" -> bankStatementUploadService.uploadNubankPdf(file, principal.getId());
                 default -> throw new IllegalArgumentException("Banco não suportado para extrato: " + bankNormalized);
             };
 

@@ -16,6 +16,7 @@ import com.ella.backend.entities.BankStatement;
 import com.ella.backend.entities.BankStatementTransaction;
 import com.ella.backend.repositories.BankStatementRepository;
 import com.ella.backend.services.bankstatements.extractor.C6BankStatementExtractorClient;
+import com.ella.backend.services.bankstatements.extractor.NubankBankStatementExtractorClient;
 import com.ella.backend.services.bankstatements.parsers.ItauBankStatementParser;
 import com.ella.backend.services.ocr.PdfTextExtractor;
 
@@ -39,6 +40,7 @@ public class BankStatementUploadService {
     private final BankStatementRepository bankStatementRepository;
     private final PdfTextExtractor pdfTextExtractor;
     private final C6BankStatementExtractorClient c6ExtractorClient;
+    private final NubankBankStatementExtractorClient nubankExtractorClient;
 
     @Transactional
     public BankStatementUploadResponseDTO uploadItauPdf(MultipartFile file, UUID userId, String password) {
@@ -257,6 +259,85 @@ public class BankStatementUploadService {
         }
 
         log.info("[BankStatementUpload][C6] parsed statementDate={} opening={} closing={} persistedTxCount={}",
+                statement.getStatementDate(), statement.getOpeningBalance(), statement.getClosingBalance(), persisted);
+
+        BankStatement saved = bankStatementRepository.save(statement);
+        return BankStatementUploadResponseDTO.from(saved);
+    }
+
+    @Transactional
+    public BankStatementUploadResponseDTO uploadNubankPdf(MultipartFile file, UUID userId) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Arquivo ausente ou vazio");
+        }
+        if (userId == null) {
+            throw new IllegalArgumentException("Usuário inválido");
+        }
+
+        String filename = file.getOriginalFilename();
+        if (filename == null || !filename.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf")) {
+            throw new IllegalArgumentException("Somente PDF é suportado para extrato bancário Nubank");
+        }
+
+        byte[] pdfBytes;
+        try (InputStream is = file.getInputStream()) {
+            pdfBytes = is.readAllBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("Falha ao ler arquivo PDF", e);
+        }
+
+        NubankBankStatementExtractorClient.NubankBankStatementResponse parsed = nubankExtractorClient.parseNubankBankStatement(pdfBytes);
+
+        if (parsed == null || parsed.transactions() == null || parsed.transactions().isEmpty()) {
+            String reason = parsed != null ? parsed.reason() : null;
+            if (reason == null || reason.isBlank()) {
+                reason = "UNSUPPORTED_LAYOUT";
+            }
+            throw new IllegalArgumentException("Extrato Nubank não suportado (" + reason + ")");
+        }
+
+        BankStatement statement = new BankStatement();
+        statement.setUserId(userId);
+        statement.setBank("NUBANK");
+        statement.setStatementDate(parsed.statementDateAsLocalDate());
+        statement.setOpeningBalance(nz(parsed.openingBalanceAsBigDecimal()));
+        statement.setClosingBalance(nz(parsed.closingBalanceAsBigDecimal()));
+        statement.setCreditLimit(BigDecimal.ZERO);
+        statement.setAvailableLimit(BigDecimal.ZERO);
+
+        boolean debug = isParserDebugEnabled();
+        int persisted = 0;
+
+        for (var tx : parsed.transactions()) {
+            if (tx == null) continue;
+
+            BankStatementTransaction.Type type = tx.typeAsEnumOrNull();
+            if (type == BankStatementTransaction.Type.BALANCE) {
+                if (debug) {
+                    System.err.println("[UPLOAD_DEBUG] Ignorando BALANCE (NUBANK): " + tx.description());
+                }
+                continue;
+            }
+
+            BigDecimal amount = nz(tx.amountAsBigDecimal());
+            if (type == BankStatementTransaction.Type.DEBIT) {
+                if (amount.signum() > 0) amount = amount.negate();
+            } else if (type == BankStatementTransaction.Type.CREDIT) {
+                if (amount.signum() < 0) amount = amount.abs();
+            }
+
+            BankStatementTransaction entity = new BankStatementTransaction();
+            entity.setTransactionDate(tx.transactionDateAsLocalDate());
+            entity.setDescription(tx.description() == null ? "" : tx.description());
+            entity.setType(type == null ? BankStatementTransaction.Type.DEBIT : type);
+            entity.setAmount(amount);
+            entity.setBalance(nz(tx.balanceAsBigDecimal()));
+
+            statement.addTransaction(entity);
+            persisted++;
+        }
+
+        log.info("[BankStatementUpload][NUBANK] parsed statementDate={} opening={} closing={} persistedTxCount={}",
                 statement.getStatementDate(), statement.getOpeningBalance(), statement.getClosingBalance(), persisted);
 
         BankStatement saved = bankStatementRepository.save(statement);
