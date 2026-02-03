@@ -20,6 +20,7 @@ import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.services.cashflow.CashflowTransactionsService;
 import com.ella.backend.services.goals.providers.GoalProvider;
 
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class GoalGeneratorService {
     private final PersonRepository personRepository;
     private final GoalRepository goalRepository;
     private final FinancialTransactionRepository financialTransactionRepository;
+    private final CashflowTransactionsService cashflowTransactionsService;
 
     /**
      * Compatibilidade: usado por {@link DashboardGoalsService}.
@@ -84,11 +86,24 @@ public class GoalGeneratorService {
 
         List<FinancialTransaction> recentTransactions = fetchRecentTransactions(person, monthsToAnalyze);
 
+        boolean needsCashflow = goalProviders.stream()
+            .anyMatch(p -> p != null && p.getDataSource() == GoalProvider.GoalDataSource.CASHFLOW_COMBINED);
+
+        List<FinancialTransaction> cashflowTransactions = needsCashflow
+            ? fetchRecentCashflowTransactions(person, monthsToAnalyze)
+            : List.of();
+
         List<Goal> newGoals = goalProviders.stream()
                 .sorted(java.util.Comparator.comparingInt(GoalProvider::getPriority))
                 .flatMap(provider -> {
                     try {
-                        return provider.generateGoals(person, recentTransactions).stream();
+                        List<FinancialTransaction> txs = provider.getDataSource() == GoalProvider.GoalDataSource.CASHFLOW_COMBINED
+                                ? cashflowTransactions
+                                : recentTransactions;
+                        if (txs == null) {
+                            txs = List.of();
+                        }
+                        return provider.generateGoals(person, txs).stream();
                     } catch (Exception e) {
                         log.warn("Goal provider {} failed for personId={}", provider.getClass().getSimpleName(), person.getId(), e);
                         return java.util.stream.Stream.empty();
@@ -117,6 +132,14 @@ public class GoalGeneratorService {
         LocalDate end = LocalDate.now();
         LocalDate start = end.minusMonths(months).withDayOfMonth(1);
         return Optional.ofNullable(financialTransactionRepository.findByPersonAndTransactionDateBetween(person, start, end))
+                .orElse(List.of());
+    }
+
+    private List<FinancialTransaction> fetchRecentCashflowTransactions(Person person, int monthsToAnalyze) {
+        int months = Math.max(3, Math.min(6, monthsToAnalyze));
+        LocalDate end = LocalDate.now();
+        LocalDate start = end.minusMonths(months).withDayOfMonth(1);
+        return Optional.ofNullable(cashflowTransactionsService.fetchCashflowTransactions(person, start, end))
                 .orElse(List.of());
     }
 }

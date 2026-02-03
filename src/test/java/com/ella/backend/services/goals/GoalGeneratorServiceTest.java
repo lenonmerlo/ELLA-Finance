@@ -28,6 +28,7 @@ import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.PersonRepository;
 import com.ella.backend.services.GoalGeneratorService;
+import com.ella.backend.services.cashflow.CashflowTransactionsService;
 import com.ella.backend.services.goals.providers.GoalProvider;
 
 @ExtendWith(MockitoExtension.class)
@@ -42,6 +43,9 @@ class GoalGeneratorServiceTest {
 
     @Mock
     private FinancialTransactionRepository financialTransactionRepository;
+
+    @Mock
+    private CashflowTransactionsService cashflowTransactionsService;
 
     @Mock
     private GoalProvider provider1;
@@ -82,7 +86,8 @@ class GoalGeneratorServiceTest {
             List.of(provider1, provider2, provider3),
             personRepository,
             goalRepository,
-            financialTransactionRepository
+            financialTransactionRepository,
+            cashflowTransactionsService
         );
 
         List<Goal> saved = service.generateGoalsForUser(person.getId().toString());
@@ -105,7 +110,8 @@ class GoalGeneratorServiceTest {
             List.of(provider1, provider2, provider3),
             personRepository,
             goalRepository,
-            financialTransactionRepository
+            financialTransactionRepository,
+            cashflowTransactionsService
         );
 
         List<Goal> saved = service.generateGoalsForUser(person.getId().toString());
@@ -145,7 +151,8 @@ class GoalGeneratorServiceTest {
             List.of(provider1, provider2),
             personRepository,
             goalRepository,
-            financialTransactionRepository
+            financialTransactionRepository,
+            cashflowTransactionsService
         );
 
         List<Goal> saved = service.generateGoalsForUser(person.getId().toString());
@@ -169,7 +176,8 @@ class GoalGeneratorServiceTest {
             List.of(provider1),
             personRepository,
             goalRepository,
-            financialTransactionRepository
+            financialTransactionRepository,
+            cashflowTransactionsService
         );
 
         assertThrows(ResourceNotFoundException.class, () -> service.generateGoalsForUser(id.toString()));

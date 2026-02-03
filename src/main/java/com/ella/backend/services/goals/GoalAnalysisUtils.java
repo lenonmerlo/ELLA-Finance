@@ -42,7 +42,7 @@ public final class GoalAnalysisUtils {
         if (tx == null || tx.getAmount() == null) {
             return BigDecimal.ZERO;
         }
-        return tx.getAmount();
+        return tx.getAmount().abs();
     }
 
     public static String normalizeCategory(String category) {

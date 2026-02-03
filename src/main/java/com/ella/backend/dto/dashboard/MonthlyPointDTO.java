@@ -18,4 +18,7 @@ public class MonthlyPointDTO {
 
     private BigDecimal income;
     private BigDecimal expenses;
+    private BigDecimal incomeChecking;
+    private BigDecimal expensesChecking;
+    private BigDecimal expensesCard;
 }

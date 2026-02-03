@@ -26,6 +26,7 @@ import com.ella.backend.entities.Person;
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
 import com.ella.backend.repositories.FinancialTransactionRepository;
+import com.ella.backend.services.cashflow.CashflowTransactionsService;
 import com.ella.backend.services.insights.InsightDataCache;
 
 @ExtendWith(MockitoExtension.class)
@@ -33,6 +34,9 @@ class RecurringPaymentInsightProviderTest {
 
     @Mock
     private FinancialTransactionRepository financialTransactionRepository;
+
+        @Mock
+        private CashflowTransactionsService cashflowTransactionsService;
 
     @Test
     @DisplayName("Detects recurring payments across 3 consecutive months")
@@ -54,13 +58,13 @@ class RecurringPaymentInsightProviderTest {
                 tx(person, LocalDate.of(2025, 12, 8), "Streaming", "Netflix", "39.90")
         ));
 
-        when(financialTransactionRepository.findByPersonAndTransactionDateBetween(eq(person), any(LocalDate.class), any(LocalDate.class)))
+        when(cashflowTransactionsService.fetchCashflowTransactions(eq(person), any(LocalDate.class), any(LocalDate.class)))
                 .thenAnswer(invocation -> {
                     LocalDate start = invocation.getArgument(1);
                     return byMonth.getOrDefault(YearMonth.from(start), List.of());
                 });
 
-        InsightDataCache cache = new InsightDataCache(financialTransactionRepository);
+        InsightDataCache cache = new InsightDataCache(financialTransactionRepository, cashflowTransactionsService);
         RecurringPaymentInsightProvider provider = new RecurringPaymentInsightProvider(cache);
 
         List<InsightDTO> insights = provider.generate(person, current.getYear(), current.getMonthValue());
@@ -86,13 +90,13 @@ class RecurringPaymentInsightProviderTest {
         byMonth.put(current.minusMonths(1), List.of(tx(person, LocalDate.of(2026, 1, 7), "Outros", "PIX JOAO", "39.90")));
         byMonth.put(current.minusMonths(2), List.of(tx(person, LocalDate.of(2025, 12, 7), "Outros", "PIX JOAO", "39.90")));
 
-        when(financialTransactionRepository.findByPersonAndTransactionDateBetween(eq(person), any(LocalDate.class), any(LocalDate.class)))
+        when(cashflowTransactionsService.fetchCashflowTransactions(eq(person), any(LocalDate.class), any(LocalDate.class)))
                 .thenAnswer(invocation -> {
                     LocalDate start = invocation.getArgument(1);
                     return byMonth.getOrDefault(YearMonth.from(start), List.of());
                 });
 
-        InsightDataCache cache = new InsightDataCache(financialTransactionRepository);
+        InsightDataCache cache = new InsightDataCache(financialTransactionRepository, cashflowTransactionsService);
         RecurringPaymentInsightProvider provider = new RecurringPaymentInsightProvider(cache);
 
         List<InsightDTO> insights = provider.generate(person, current.getYear(), current.getMonthValue());

@@ -50,7 +50,7 @@ public class RecurringPaymentInsightProvider implements InsightProvider {
         // Carrega tx dos 3 meses (inclui o mês atual)
         List<FinancialTransaction> all = new ArrayList<>();
         for (YearMonth ym : months) {
-            all.addAll(insightDataCache.getTransactionsForMonth(person, ym));
+            all.addAll(insightDataCache.getCashflowTransactionsForMonth(person, ym));
         }
 
         if (all.isEmpty()) {

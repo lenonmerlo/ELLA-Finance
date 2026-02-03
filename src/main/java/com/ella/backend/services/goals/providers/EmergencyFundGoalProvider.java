@@ -17,6 +17,11 @@ import com.ella.backend.services.goals.GoalAnalysisUtils;
 public class EmergencyFundGoalProvider implements GoalProvider {
 
     @Override
+    public GoalDataSource getDataSource() {
+        return GoalDataSource.CASHFLOW_COMBINED;
+    }
+
+    @Override
     public List<Goal> generateGoals(Person person, List<FinancialTransaction> recentTransactions) {
         if (person == null || recentTransactions == null || recentTransactions.isEmpty()) {
             return List.of();

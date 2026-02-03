@@ -12,16 +12,23 @@ import org.springframework.web.context.annotation.RequestScope;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
 import com.ella.backend.repositories.FinancialTransactionRepository;
+import com.ella.backend.services.cashflow.CashflowTransactionsService;
 
 @Component
 @RequestScope
 public class InsightDataCache {
 
     private final FinancialTransactionRepository financialTransactionRepository;
+    private final CashflowTransactionsService cashflowTransactionsService;
     private final Map<YearMonth, List<FinancialTransaction>> txByMonth = new HashMap<>();
+    private final Map<YearMonth, List<FinancialTransaction>> cashflowTxByMonth = new HashMap<>();
 
-    public InsightDataCache(FinancialTransactionRepository financialTransactionRepository) {
+    public InsightDataCache(
+            FinancialTransactionRepository financialTransactionRepository,
+            CashflowTransactionsService cashflowTransactionsService
+    ) {
         this.financialTransactionRepository = financialTransactionRepository;
+        this.cashflowTransactionsService = cashflowTransactionsService;
     }
 
     public List<FinancialTransaction> getTransactionsForMonth(Person person, int year, int month) {
@@ -33,6 +40,19 @@ public class InsightDataCache {
             LocalDate start = ym.atDay(1);
             LocalDate end = ym.atEndOfMonth();
             return financialTransactionRepository.findByPersonAndTransactionDateBetween(person, start, end);
+        });
+    }
+
+    public List<FinancialTransaction> getCashflowTransactionsForMonth(Person person, int year, int month) {
+        return getCashflowTransactionsForMonth(person, YearMonth.of(year, month));
+    }
+
+    public List<FinancialTransaction> getCashflowTransactionsForMonth(Person person, YearMonth yearMonth) {
+        return cashflowTxByMonth.computeIfAbsent(yearMonth, ym -> {
+            LocalDate start = ym.atDay(1);
+            LocalDate end = ym.atEndOfMonth();
+            List<FinancialTransaction> combined = cashflowTransactionsService.fetchCashflowTransactions(person, start, end);
+            return combined != null ? combined : List.of();
         });
     }
 

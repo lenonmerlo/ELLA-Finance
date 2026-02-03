@@ -25,6 +25,11 @@ public class SubscriptionCleanupGoalProvider implements GoalProvider {
     private static final Locale LOCALE_PT_BR = Locale.of("pt", "BR");
 
     @Override
+    public GoalDataSource getDataSource() {
+        return GoalDataSource.CASHFLOW_COMBINED;
+    }
+
+    @Override
     public List<Goal> generateGoals(Person person, List<FinancialTransaction> recentTransactions) {
         if (person == null || recentTransactions == null || recentTransactions.isEmpty()) {
             return List.of();

@@ -19,12 +19,15 @@ import com.ella.backend.dto.dashboard.CategoryBreakdownDTO;
 import com.ella.backend.dto.dashboard.ChartsDTO;
 import com.ella.backend.dto.dashboard.MonthlyEvolutionDTO;
 import com.ella.backend.dto.dashboard.MonthlyPointDTO;
+import com.ella.backend.entities.BankStatementTransaction;
 import com.ella.backend.entities.FinancialTransaction;
 import com.ella.backend.entities.Person;
 import com.ella.backend.enums.TransactionType;
 import com.ella.backend.exceptions.ResourceNotFoundException;
+import com.ella.backend.repositories.BankStatementTransactionRepository;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.ella.backend.services.cashflow.BankStatementCashflowHeuristics;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +39,7 @@ public class DashboardChartsService {
 
     private final PersonRepository personRepository;
     private final FinancialTransactionRepository financialTransactionRepository;
+        private final BankStatementTransactionRepository bankStatementTransactionRepository;
 
         public ChartsDTO getCharts(String personId, int year, Integer month) {
         UUID personUuid = UUID.fromString(personId);
@@ -61,6 +65,12 @@ public class DashboardChartsService {
                                 person, rangeStart, rangeEnd
                 );
 
+                List<BankStatementTransaction> statementTxs = bankStatementTransactionRepository
+                        .findForUserAndPeriod(person.getId(), rangeStart, rangeEnd)
+                        .stream()
+                        .filter(t -> !BankStatementCashflowHeuristics.shouldIgnore(t))
+                        .toList();
+
         if (log.isInfoEnabled()) {
                         List<String> sample = txs.stream()
                     .limit(5)
@@ -69,8 +79,8 @@ public class DashboardChartsService {
                         log.info("[DashboardChartsService] loaded {} txs for charts; samples={}", txs.size(), sample);
         }
 
-                MonthlyEvolutionDTO monthlyEvolution = buildMonthlyEvolution(txs, year, target);
-                List<CategoryBreakdownDTO> categoryBreakdown = buildCategoryBreakdown(txs, target);
+                MonthlyEvolutionDTO monthlyEvolution = buildMonthlyEvolution(txs, statementTxs, year, target);
+                List<CategoryBreakdownDTO> categoryBreakdown = buildCategoryBreakdown(txs, statementTxs, target);
 
         return ChartsDTO.builder()
                 .monthlyEvolution(monthlyEvolution)
@@ -78,25 +88,41 @@ public class DashboardChartsService {
                 .build();
     }
 
-        private MonthlyEvolutionDTO buildMonthlyEvolution(List<FinancialTransaction> txs, int year, YearMonth target) {
+        private MonthlyEvolutionDTO buildMonthlyEvolution(List<FinancialTransaction> txs, List<BankStatementTransaction> statementTxs, int year, YearMonth target) {
                 Map<YearMonth, List<FinancialTransaction>> grouped = txs.stream()
                 .filter(tx -> tx.getTransactionDate() != null)
                 .collect(Collectors.groupingBy(
                         tx -> YearMonth.from(tx.getTransactionDate())
                 ));
 
+                Map<YearMonth, List<BankStatementTransaction>> groupedStatements = statementTxs.stream()
+                        .filter(tx -> tx != null && tx.getTransactionDate() != null)
+                        .collect(Collectors.groupingBy(tx -> YearMonth.from(tx.getTransactionDate())));
+
         List<MonthlyPointDTO> points = new ArrayList<>();
                 if (target != null) {
                         for (int i = 5; i >= 0; i--) {
                                 YearMonth ym = target.minusMonths(i);
                                 List<FinancialTransaction> monthTx = grouped.getOrDefault(ym, Collections.emptyList());
-                                BigDecimal income = sumByType(monthTx, TransactionType.INCOME);
-                                BigDecimal expenses = sumByType(monthTx, TransactionType.EXPENSE);
+                                List<BankStatementTransaction> monthStatements = groupedStatements.getOrDefault(ym, Collections.emptyList());
+
+                                BigDecimal incomeFinancial = sumByType(monthTx, TransactionType.INCOME);
+                                BigDecimal incomeChecking = sumStatementByType(monthStatements, BankStatementTransaction.Type.CREDIT);
+                                BigDecimal income = incomeFinancial.add(incomeChecking);
+
+                                BigDecimal expensesCard = sumCardExpenses(monthTx);
+                                BigDecimal expensesOther = sumNonCardExpenses(monthTx);
+                                BigDecimal expensesChecking = sumStatementByType(monthStatements, BankStatementTransaction.Type.DEBIT).add(expensesOther);
+                                BigDecimal expenses = expensesCard.add(expensesChecking);
+
                                 String label = ym.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
                                 points.add(MonthlyPointDTO.builder()
                                                 .monthLabel(label)
                                                 .income(income)
                                                 .expenses(expenses)
+                                                .incomeChecking(incomeChecking)
+                                                .expensesChecking(expensesChecking)
+                                                .expensesCard(expensesCard)
                                                 .build());
                         }
                 } else {
@@ -104,8 +130,16 @@ public class DashboardChartsService {
                                 YearMonth ym = YearMonth.of(year, m);
                                 List<FinancialTransaction> monthTx = grouped.getOrDefault(ym, Collections.emptyList());
 
-                                BigDecimal income = sumByType(monthTx, TransactionType.INCOME);
-                                BigDecimal expenses = sumByType(monthTx, TransactionType.EXPENSE);
+                                List<BankStatementTransaction> monthStatements = groupedStatements.getOrDefault(ym, Collections.emptyList());
+
+                                BigDecimal incomeFinancial = sumByType(monthTx, TransactionType.INCOME);
+                                BigDecimal incomeChecking = sumStatementByType(monthStatements, BankStatementTransaction.Type.CREDIT);
+                                BigDecimal income = incomeFinancial.add(incomeChecking);
+
+                                BigDecimal expensesCard = sumCardExpenses(monthTx);
+                                BigDecimal expensesOther = sumNonCardExpenses(monthTx);
+                                BigDecimal expensesChecking = sumStatementByType(monthStatements, BankStatementTransaction.Type.DEBIT).add(expensesOther);
+                                BigDecimal expenses = expensesCard.add(expensesChecking);
 
                                 String label = String.format("%04d-%02d", year, m);
 
@@ -113,6 +147,9 @@ public class DashboardChartsService {
                                                 .monthLabel(label)
                                                 .income(income)
                                                 .expenses(expenses)
+                                                .incomeChecking(incomeChecking)
+                                                .expensesChecking(expensesChecking)
+                                                .expensesCard(expensesCard)
                                                 .build());
                         }
                 }
@@ -122,53 +159,61 @@ public class DashboardChartsService {
                 .build();
     }
 
-        private List<CategoryBreakdownDTO> buildCategoryBreakdown(List<FinancialTransaction> txs, YearMonth targetMonth) {
-                List<FinancialTransaction> filtered = txs.stream()
-                                .filter(tx -> tx.getType() == TransactionType.EXPENSE)
-                                .filter(tx -> {
-                                        if (targetMonth == null || tx.getTransactionDate() == null) {
-                                                return true;
-                                        }
-                                        YearMonth ym = YearMonth.from(tx.getTransactionDate());
-                                        return ym.equals(targetMonth);
-                                })
-                                .toList();
+        private List<CategoryBreakdownDTO> buildCategoryBreakdown(List<FinancialTransaction> txs, List<BankStatementTransaction> statementTxs, YearMonth targetMonth) {
+                Map<String, BigDecimal> byCategory = new java.util.HashMap<>();
 
-                if (filtered.isEmpty()) {
+                for (FinancialTransaction tx : txs) {
+                        if (tx == null || tx.getType() != TransactionType.EXPENSE || tx.getAmount() == null) continue;
+                        if (targetMonth != null && tx.getTransactionDate() != null && !YearMonth.from(tx.getTransactionDate()).equals(targetMonth)) {
+                                continue;
+                        }
+                        if (targetMonth != null && tx.getTransactionDate() == null) {
+                                continue;
+                        }
+                        String category = sanitizeCategory(tx.getCategory());
+                        byCategory.merge(category, tx.getAmount().abs(), BigDecimal::add);
+                }
+
+                for (BankStatementTransaction stx : statementTxs) {
+                        if (stx == null || stx.getAmount() == null || stx.getType() != BankStatementTransaction.Type.DEBIT) continue;
+                        if (targetMonth != null && stx.getTransactionDate() != null && !YearMonth.from(stx.getTransactionDate()).equals(targetMonth)) {
+                                continue;
+                        }
+                        if (targetMonth != null && stx.getTransactionDate() == null) {
+                                continue;
+                        }
+                        String category = sanitizeCategory(BankStatementCashflowHeuristics.categorize(stx.getDescription(), stx.getType()));
+                        byCategory.merge(category, stx.getAmount().abs(), BigDecimal::add);
+                }
+
+                if (byCategory.isEmpty()) {
                         return Collections.emptyList();
                 }
 
-                BigDecimal totalExpenses = filtered.stream()
-                .map(FinancialTransaction::getAmount)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal totalExpenses = byCategory.values().stream()
+                        .filter(Objects::nonNull)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        if (totalExpenses.compareTo(BigDecimal.ZERO) == 0) {
-            return Collections.emptyList();
+                if (totalExpenses.compareTo(BigDecimal.ZERO) == 0) {
+                        return Collections.emptyList();
+                }
+
+                return byCategory.entrySet().stream()
+                        .map(entry -> {
+                                BigDecimal total = entry.getValue();
+                                BigDecimal percentage = total
+                                        .multiply(BigDecimal.valueOf(100))
+                                        .divide(totalExpenses, 2, RoundingMode.HALF_UP);
+
+                                return CategoryBreakdownDTO.builder()
+                                        .category(entry.getKey())
+                                        .total(total)
+                                        .percentage(percentage)
+                                        .build();
+                        })
+                        .sorted(Comparator.comparing(CategoryBreakdownDTO::getTotal).reversed())
+                        .toList();
         }
-
-                Map<String, BigDecimal> byCategory = filtered.stream()
-                .collect(Collectors.groupingBy(
-                                                tx -> sanitizeCategory(tx.getCategory()),
-                        Collectors.reducing(BigDecimal.ZERO, FinancialTransaction::getAmount, BigDecimal::add)
-                ));
-
-        return byCategory.entrySet().stream()
-                .map(entry -> {
-                    BigDecimal total = entry.getValue();
-                    BigDecimal percentage = total
-                            .multiply(BigDecimal.valueOf(100))
-                            .divide(totalExpenses, 2, RoundingMode.HALF_UP);
-
-                    return CategoryBreakdownDTO.builder()
-                            .category(entry.getKey())
-                            .total(total)
-                            .percentage(percentage)
-                            .build();
-                })
-                .sorted(Comparator.comparing(CategoryBreakdownDTO::getTotal).reversed())
-                .toList();
-    }
 
         private String sanitizeCategory(String category) {
                 if (category == null || category.isBlank()) {
@@ -184,4 +229,33 @@ public class DashboardChartsService {
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
+
+        private BigDecimal sumStatementByType(List<BankStatementTransaction> txs, BankStatementTransaction.Type type) {
+                return txs.stream()
+                        .filter(tx -> tx != null && tx.getType() == type)
+                        .map(BankStatementTransaction::getAmount)
+                        .filter(Objects::nonNull)
+                        .map(BigDecimal::abs)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+
+        private BigDecimal sumCardExpenses(List<FinancialTransaction> txs) {
+                return txs.stream()
+                        .filter(tx -> tx != null && tx.getType() == TransactionType.EXPENSE)
+                        .filter(tx -> tx.getPurchaseDate() != null)
+                        .map(FinancialTransaction::getAmount)
+                        .filter(Objects::nonNull)
+                        .map(BigDecimal::abs)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+
+        private BigDecimal sumNonCardExpenses(List<FinancialTransaction> txs) {
+                return txs.stream()
+                        .filter(tx -> tx != null && tx.getType() == TransactionType.EXPENSE)
+                        .filter(tx -> tx.getPurchaseDate() == null)
+                        .map(FinancialTransaction::getAmount)
+                        .filter(Objects::nonNull)
+                        .map(BigDecimal::abs)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
 }

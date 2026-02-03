@@ -27,6 +27,11 @@ public class DebtPayoffGoalProvider implements GoalProvider {
     }
 
     @Override
+    public GoalDataSource getDataSource() {
+        return GoalDataSource.CASHFLOW_COMBINED;
+    }
+
+    @Override
     public List<Goal> generateGoals(Person person, List<FinancialTransaction> recentTransactions) {
         if (person == null) {
             return List.of();

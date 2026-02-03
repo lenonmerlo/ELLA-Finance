@@ -26,6 +26,7 @@ import com.ella.backend.entities.Person;
 import com.ella.backend.enums.TransactionStatus;
 import com.ella.backend.enums.TransactionType;
 import com.ella.backend.repositories.FinancialTransactionRepository;
+import com.ella.backend.services.cashflow.CashflowTransactionsService;
 import com.ella.backend.services.insights.InsightDataCache;
 
 @ExtendWith(MockitoExtension.class)
@@ -33,6 +34,9 @@ class UnexpectedSpendingInsightProviderTest {
 
     @Mock
     private FinancialTransactionRepository financialTransactionRepository;
+
+        @Mock
+        private CashflowTransactionsService cashflowTransactionsService;
 
     @Test
     @DisplayName("Generates insight when current month spend is far above 3-month baseline")
@@ -68,7 +72,7 @@ class UnexpectedSpendingInsightProviderTest {
                     return byMonth.getOrDefault(YearMonth.from(start), List.of());
                 });
 
-        InsightDataCache cache = new InsightDataCache(financialTransactionRepository);
+        InsightDataCache cache = new InsightDataCache(financialTransactionRepository, cashflowTransactionsService);
         UnexpectedSpendingInsightProvider provider = new UnexpectedSpendingInsightProvider(cache);
 
         List<InsightDTO> insights = provider.generate(person, current.getYear(), current.getMonthValue());
@@ -98,7 +102,7 @@ class UnexpectedSpendingInsightProviderTest {
                     return byMonth.getOrDefault(YearMonth.from(start), List.of());
                 });
 
-        InsightDataCache cache = new InsightDataCache(financialTransactionRepository);
+        InsightDataCache cache = new InsightDataCache(financialTransactionRepository, cashflowTransactionsService);
         UnexpectedSpendingInsightProvider provider = new UnexpectedSpendingInsightProvider(cache);
 
         List<InsightDTO> insights = provider.generate(person, current.getYear(), current.getMonthValue());

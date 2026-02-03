@@ -21,11 +21,15 @@ public final class InsightUtils {
         if (transaction == null || transaction.getAmount() == null) {
             return BigDecimal.ZERO;
         }
-        return transaction.getAmount();
+        return transaction.getAmount().abs();
     }
 
     public static boolean isExpense(FinancialTransaction transaction) {
         return transaction != null && transaction.getType() == TransactionType.EXPENSE;
+    }
+
+    public static boolean isIncome(FinancialTransaction transaction) {
+        return transaction != null && transaction.getType() == TransactionType.INCOME;
     }
 
     public static String normalizeCategory(String category) {
