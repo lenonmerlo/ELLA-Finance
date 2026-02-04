@@ -22,8 +22,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ella.backend.dto.dashboard.InsightDTO;
 import com.ella.backend.dto.reports.CategoryTotalDTO;
 import com.ella.backend.dto.reports.GenerateReportRequestDTO;
@@ -49,9 +47,11 @@ import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.GoalRepository;
 import com.ella.backend.repositories.InvestmentRepository;
 import com.ella.backend.repositories.PersonRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 
 @Service
