@@ -15,6 +15,37 @@ import com.ella.backend.enums.AuditEventStatus;
 
 public interface AuditEventRepository  extends JpaRepository<AuditEvent, UUID> {
 
+        @Query("""
+                        SELECT a FROM AuditEvent a
+                        WHERE (
+                                :q IS NULL OR :q = '' OR
+                                lower(a.userEmail) LIKE lower(concat('%', cast(:q as string), '%')) OR
+                                lower(a.action) LIKE lower(concat('%', cast(:q as string), '%')) OR
+                                lower(a.entityType) LIKE lower(concat('%', cast(:q as string), '%')) OR
+                                lower(a.entityId) LIKE lower(concat('%', cast(:q as string), '%'))
+                        )
+                        AND (:action IS NULL OR a.action = :action)
+                        AND (:status IS NULL OR a.status = :status)
+                        AND (:userId IS NULL OR a.userId = :userId)
+                        AND (:userEmail IS NULL OR lower(a.userEmail) = lower(cast(:userEmail as string)))
+                        AND (:entityType IS NULL OR a.entityType = :entityType)
+                        AND (:entityId IS NULL OR a.entityId = :entityId)
+                            AND (cast(:start as timestamp) IS NULL OR a.timestamp >= :start)
+                            AND (cast(:end as timestamp) IS NULL OR a.timestamp <= :end)
+                        """)
+        Page<AuditEvent> search(
+                        @Param("q") String q,
+                        @Param("action") String action,
+                        @Param("status") AuditEventStatus status,
+                        @Param("userId") String userId,
+                        @Param("userEmail") String userEmail,
+                        @Param("entityType") String entityType,
+                        @Param("entityId") String entityId,
+                        @Param("start") LocalDateTime start,
+                        @Param("end") LocalDateTime end,
+                        Pageable pageable
+        );
+
     Page<AuditEvent> findByUserId(String userId, Pageable pageable);
 
     Page<AuditEvent> findByAction(String action, Pageable pageable);
