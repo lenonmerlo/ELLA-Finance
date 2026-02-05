@@ -1,18 +1,29 @@
 package com.ella.backend.entities;
 
-import com.ella.backend.enums.Currency;
-import com.ella.backend.enums.Language;
-import com.ella.backend.enums.Plan;
-import com.ella.backend.enums.Status;
-import jakarta.persistence.*;
-import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import com.ella.backend.enums.Currency;
+import com.ella.backend.enums.Language;
+import com.ella.backend.enums.Plan;
+import com.ella.backend.enums.Status;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Inheritance;
+import jakarta.persistence.InheritanceType;
+import jakarta.persistence.Table;
+import lombok.Data;
 
 @Entity
 @Table(name = "persons")

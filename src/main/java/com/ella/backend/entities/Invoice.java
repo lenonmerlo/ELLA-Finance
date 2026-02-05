@@ -70,6 +70,9 @@ public class Invoice {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Transient
     private List<FinancialTransaction> resume;
 
