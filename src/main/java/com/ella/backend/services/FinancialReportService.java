@@ -82,9 +82,9 @@ public class FinancialReportService {
         Period prevPeriod = resolvePreviousPeriod(type, period);
 
         List<FinancialTransaction> tx = financialTransactionRepository
-                .findByPersonAndTransactionDateBetween(person, period.start, period.end);
+            .findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, period.start, period.end);
         List<FinancialTransaction> prevTx = financialTransactionRepository
-                .findByPersonAndTransactionDateBetween(person, prevPeriod.start, prevPeriod.end);
+            .findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, prevPeriod.start, prevPeriod.end);
 
         ComputedSummary currentSummary = computeSummary(tx);
         ComputedSummary previousSummary = computeSummary(prevTx);

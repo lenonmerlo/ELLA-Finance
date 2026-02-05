@@ -70,17 +70,17 @@ class ScoreServiceTest {
         latest.setMonth(12);
         latest.setYear(2025);
         latest.setDueDate(LocalDate.now().minusDays(10));
-        when(invoiceRepository.findTopByCardOwnerOrderByYearDescMonthDesc(person)).thenReturn(Optional.of(latest));
+        when(invoiceRepository.findTopByCardOwnerAndDeletedAtIsNullOrderByYearDescMonthDesc(person)).thenReturn(Optional.of(latest));
 
         Invoice inv = new Invoice();
         inv.setTotalAmount(new BigDecimal("7000"));
         inv.setDueDate(LocalDate.now().minusDays(10));
         inv.setStatus(InvoiceStatus.PAID);
         inv.setPaidDate(inv.getDueDate());
-        when(invoiceRepository.findByCardOwnerAndMonthAndYear(person, 12, 2025)).thenReturn(List.of(inv));
+        when(invoiceRepository.findByCardOwnerAndMonthAndYearAndDeletedAtIsNull(person, 12, 2025)).thenReturn(List.of(inv));
 
-        when(invoiceRepository.findByCardOwner(person)).thenReturn(List.of(inv));
-        when(invoiceRepository.findTopByCardOwnerOrderByDueDateAsc(person)).thenReturn(Optional.of(inv));
+        when(invoiceRepository.findByCardOwnerAndDeletedAtIsNull(person)).thenReturn(List.of(inv));
+        when(invoiceRepository.findTopByCardOwnerAndDeletedAtIsNullOrderByDueDateAsc(person)).thenReturn(Optional.of(inv));
 
         FinancialTransaction tx1 = new FinancialTransaction();
         tx1.setType(TransactionType.EXPENSE);
@@ -89,7 +89,7 @@ class ScoreServiceTest {
         tx1.setTransactionDate(LocalDate.now().minusDays(5));
         tx1.setAmount(new BigDecimal("100"));
 
-        when(transactionRepository.findByPersonAndTransactionDateBetween(any(), any(), any()))
+        when(transactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(any(), any(), any()))
                 .thenReturn(List.of(tx1));
 
         when(scoreRepository.save(any(Score.class))).thenAnswer(invocation -> invocation.getArgument(0));

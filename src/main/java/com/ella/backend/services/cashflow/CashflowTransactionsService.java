@@ -45,7 +45,7 @@ public class CashflowTransactionsService {
         }
 
         List<FinancialTransaction> base = financialTransactionRepository
-                .findByPersonAndTransactionDateBetween(person, start, end);
+            .findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, start, end);
         if (base == null) {
             base = List.of();
         }

@@ -39,7 +39,7 @@ public class InsightDataCache {
         return txByMonth.computeIfAbsent(yearMonth, ym -> {
             LocalDate start = ym.atDay(1);
             LocalDate end = ym.atEndOfMonth();
-            return financialTransactionRepository.findByPersonAndTransactionDateBetween(person, start, end);
+            return financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, start, end);
         });
     }
 

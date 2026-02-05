@@ -35,7 +35,7 @@ public class DashboardInvoicesService {
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Person not found"));
 
-        List<Invoice> invoices = invoiceRepository.findByCardOwnerAndMonthAndYear(person, month, year);
+        List<Invoice> invoices = invoiceRepository.findByCardOwnerAndMonthAndYearAndDeletedAtIsNull(person, month, year);
 
         if (log.isInfoEnabled()) {
             List<String> sample = invoices.stream()

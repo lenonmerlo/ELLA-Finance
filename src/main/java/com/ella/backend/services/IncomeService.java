@@ -1,5 +1,18 @@
 package com.ella.backend.services;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+
+import com.ella.backend.audit.Auditable;
 import com.ella.backend.dto.IncomeRequestDTO;
 import com.ella.backend.dto.IncomeResponseDTO;
 import com.ella.backend.entities.FinancialTransaction;
@@ -10,21 +23,9 @@ import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.PersonRepository;
-import com.ella.backend.audit.Auditable;
+
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.stereotype.Service;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -61,7 +62,7 @@ public class IncomeService {
 
     public IncomeResponseDTO findById(String id) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
+        FinancialTransaction entity = transactionRepository.findByIdAndDeletedAtIsNull(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Receita não encontrada"));
 
         if (entity.getType() != TransactionType.INCOME) {
@@ -75,7 +76,7 @@ public class IncomeService {
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
-        List<FinancialTransaction> list = transactionRepository.findByPerson(person);
+        List<FinancialTransaction> list = transactionRepository.findByPersonAndDeletedAtIsNull(person);
 
         return list.stream()
                 .filter(tx -> tx.getType() == TransactionType.INCOME)
@@ -89,7 +90,7 @@ public class IncomeService {
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
         List<FinancialTransaction> list = transactionRepository
-                .findByPersonAndTransactionDateBetween(person, start, end);
+            .findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, start, end);
 
         return list.stream()
                 .filter(tx -> tx.getType() == TransactionType.INCOME)
@@ -105,7 +106,7 @@ public class IncomeService {
         Pageable pageable = PageRequest.of(page, size, Sort.by("transactionDate").descending());
 
         return transactionRepository
-                .findByPersonAndType(person, TransactionType.INCOME, pageable)
+            .findByPersonAndTypeAndDeletedAtIsNull(person, TransactionType.INCOME, pageable)
                 .map(this::toDTO);
     }
 
@@ -116,7 +117,7 @@ public class IncomeService {
         validateIncomeBusinessRules(dto);
 
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
+        FinancialTransaction entity = transactionRepository.findByIdAndDeletedAtIsNull(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Receita não encontrada"));
 
         if (entity.getType() != TransactionType.INCOME) {
@@ -145,7 +146,7 @@ public class IncomeService {
     @CacheEvict(cacheNames = "dashboard", allEntries = true)
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
+        FinancialTransaction entity = transactionRepository.findByIdAndDeletedAtIsNull(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Receita não encontrada"));
 
         if (entity.getType() != TransactionType.INCOME) {

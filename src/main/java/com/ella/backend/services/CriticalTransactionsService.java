@@ -38,7 +38,7 @@ public class CriticalTransactionsService {
     @Transactional(readOnly = true)
     public List<CriticalTransactionResponseDTO> listUnreviewed(String personId) {
         Person person = loadPerson(personId);
-        return transactionRepository.findByPersonAndCriticalTrueAndCriticalReviewedFalseOrderByTransactionDateDesc(person)
+        return transactionRepository.findByPersonAndCriticalTrueAndCriticalReviewedFalseAndDeletedAtIsNullOrderByTransactionDateDesc(person)
                 .stream()
                 .map(this::toCriticalDto)
                 .toList();
@@ -48,7 +48,7 @@ public class CriticalTransactionsService {
     public List<CriticalTransactionResponseDTO> listUnreviewedByReason(String personId, CriticalReason reason) {
         Person person = loadPerson(personId);
         return transactionRepository
-                .findByPersonAndCriticalTrueAndCriticalReviewedFalseAndCriticalReasonOrderByTransactionDateDesc(person, reason)
+                .findByPersonAndCriticalTrueAndCriticalReviewedFalseAndCriticalReasonAndDeletedAtIsNullOrderByTransactionDateDesc(person, reason)
                 .stream()
                 .map(this::toCriticalDto)
                 .toList();
@@ -58,12 +58,12 @@ public class CriticalTransactionsService {
     public CriticalTransactionsStatsDTO stats(String personId) {
         Person person = loadPerson(personId);
 
-        long totalCritical = transactionRepository.countByPersonAndCriticalTrue(person);
-        long totalUnreviewed = transactionRepository.countByPersonAndCriticalTrueAndCriticalReviewedFalse(person);
+        long totalCritical = transactionRepository.countByPersonAndCriticalTrueAndDeletedAtIsNull(person);
+        long totalUnreviewed = transactionRepository.countByPersonAndCriticalTrueAndCriticalReviewedFalseAndDeletedAtIsNull(person);
 
         Map<String, Long> byReason = new LinkedHashMap<>();
         for (CriticalReason reason : CriticalReason.values()) {
-            long count = transactionRepository.countByPersonAndCriticalTrueAndCriticalReason(person, reason);
+            long count = transactionRepository.countByPersonAndCriticalTrueAndCriticalReasonAndDeletedAtIsNull(person, reason);
             if (count > 0) {
                 byReason.put(reason.name(), count);
             }
@@ -74,7 +74,7 @@ public class CriticalTransactionsService {
 
     public CriticalTransactionResponseDTO markReviewed(String transactionId) {
         UUID uuid = UUID.fromString(transactionId);
-        FinancialTransaction tx = transactionRepository.findById(uuid)
+        FinancialTransaction tx = transactionRepository.findByIdAndDeletedAtIsNull(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         if (!tx.isCritical()) {

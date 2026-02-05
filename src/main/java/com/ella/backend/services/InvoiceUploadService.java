@@ -547,7 +547,7 @@ public class InvoiceUploadService {
         int month = resolvedInvoiceDueDate.getMonthValue();
         int year = resolvedInvoiceDueDate.getYear();
         return invoiceRepository
-                .findByCardAndMonthAndYear(card, month, year)
+                .findByCardAndMonthAndYearAndDeletedAtIsNull(card, month, year)
                 .orElseGet(() -> {
                     Invoice inv = new Invoice();
                     inv.setCard(card);

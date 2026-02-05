@@ -45,7 +45,7 @@ public class DashboardSummaryService {
         LocalDate monthStart = ym.atDay(1);
         LocalDate monthEnd = ym.atEndOfMonth();
 
-        List<FinancialTransaction> monthTx = financialTransactionRepository.findByPersonAndTransactionDateBetween(
+        List<FinancialTransaction> monthTx = financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
                 person, monthStart, monthEnd
         );
 

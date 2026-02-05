@@ -1,6 +1,13 @@
 // src/main/java/com/ella/backend/services/InstallmentService.java
 package com.ella.backend.services;
 
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.ella.backend.audit.Auditable;
 import com.ella.backend.dto.InstallmentRequestDTO;
 import com.ella.backend.dto.InstallmentResponseDTO;
 import com.ella.backend.entities.FinancialTransaction;
@@ -10,14 +17,8 @@ import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.FinancialTransactionRepository;
 import com.ella.backend.repositories.InstallmentRepository;
 import com.ella.backend.repositories.InvoiceRepository;
-import com.ella.backend.audit.Auditable;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -30,10 +31,10 @@ public class InstallmentService {
     @Auditable(action = "INSTALLMENT_CREATED", entityType = "Installment")
     @Transactional
     public InstallmentResponseDTO create(InstallmentRequestDTO dto) {
-        Invoice invoice = invoiceRepository.findById(UUID.fromString(dto.getInvoiceId()))
+        Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(UUID.fromString(dto.getInvoiceId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
 
-        FinancialTransaction tx = transactionRepository.findById(UUID.fromString(dto.getTransactionId()))
+        FinancialTransaction tx = transactionRepository.findByIdAndDeletedAtIsNull(UUID.fromString(dto.getTransactionId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         Installment installment = new Installment();
@@ -55,7 +56,7 @@ public class InstallmentService {
     }
 
     public List<InstallmentResponseDTO> findByInvoice(String invoiceId) {
-        Invoice invoice = invoiceRepository.findById(UUID.fromString(invoiceId))
+                Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(UUID.fromString(invoiceId))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
 
         return installmentRepository.findByInvoice(invoice).stream()
@@ -64,7 +65,7 @@ public class InstallmentService {
     }
 
     public List<InstallmentResponseDTO> findByTransaction(String transactionId) {
-        FinancialTransaction tx = transactionRepository.findById(UUID.fromString(transactionId))
+                FinancialTransaction tx = transactionRepository.findByIdAndDeletedAtIsNull(UUID.fromString(transactionId))
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         return installmentRepository.findByTransaction(tx).stream()
@@ -78,10 +79,10 @@ public class InstallmentService {
         Installment installment = installmentRepository.findById(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Parcela não encontrada"));
 
-        Invoice invoice = invoiceRepository.findById(UUID.fromString(dto.getInvoiceId()))
+        Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(UUID.fromString(dto.getInvoiceId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
 
-        FinancialTransaction tx = transactionRepository.findById(UUID.fromString(dto.getTransactionId()))
+        FinancialTransaction tx = transactionRepository.findByIdAndDeletedAtIsNull(UUID.fromString(dto.getTransactionId()))
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         installment.setInvoice(invoice);

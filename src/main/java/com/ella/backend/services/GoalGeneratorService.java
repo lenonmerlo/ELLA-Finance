@@ -131,7 +131,7 @@ public class GoalGeneratorService {
         int months = Math.max(3, Math.min(6, monthsToAnalyze));
         LocalDate end = LocalDate.now();
         LocalDate start = end.minusMonths(months).withDayOfMonth(1);
-        return Optional.ofNullable(financialTransactionRepository.findByPersonAndTransactionDateBetween(person, start, end))
+        return Optional.ofNullable(financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, start, end))
                 .orElse(List.of());
     }
 

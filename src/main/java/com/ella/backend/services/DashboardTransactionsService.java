@@ -73,8 +73,8 @@ public class DashboardTransactionsService {
                 startDate, endDate, trimmedCategory, page, size);
 
         Page<FinancialTransaction> txPage = trimmedCategory == null
-                ? financialTransactionRepository.findByPersonAndTransactionDateBetween(person, startDate, endDate, pageable)
-                : financialTransactionRepository.findByPersonAndTransactionDateBetweenAndCategoryIgnoreCase(
+                ? financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, startDate, endDate, pageable)
+                : financialTransactionRepository.findByPersonAndTransactionDateBetweenAndCategoryIgnoreCaseAndDeletedAtIsNull(
                         person, startDate, endDate, trimmedCategory, pageable);
 
         List<FinancialTransactionResponseDTO> transactions = txPage.getContent().stream()

@@ -114,20 +114,20 @@ public class DashboardService {
 
         // Buscar transações do mês
         List<FinancialTransaction> personalMonthTx =
-                financialTransactionRepository.findByPersonAndTransactionDateBetween(
+                financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
                         person, monthStart, monthEnd
                 );
         logger.info("[Dashboard] 📊 Transações do mês encontradas: {}", personalMonthTx.size());
 
         // Buscar transações do ano
         List<FinancialTransaction> personalYearTx =
-                financialTransactionRepository.findByPersonAndTransactionDateBetween(
+                financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
                         person, yearStart, yearEnd
                 );
         logger.info("[Dashboard] 📊 Transações do ano encontradas: {}", personalYearTx.size());
 
         List<Invoice> personalInvoicesEntities =
-                invoiceRepository.findByCardOwnerAndMonthAndYear(person, month, year);
+                invoiceRepository.findByCardOwnerAndMonthAndYearAndDeletedAtIsNull(person, month, year);
         logger.info("[Dashboard] 🧾 Faturas encontradas: {}", personalInvoicesEntities.size());
 
         List<Goal> personalGoals = goalRepository.findByOwner(person);

@@ -3,12 +3,14 @@ package com.ella.backend.security;
 import java.util.UUID;
 
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import com.ella.backend.entities.User;
 import com.ella.backend.enums.Role;
+import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.AssetRepository;
 import com.ella.backend.repositories.BudgetRepository;
 import com.ella.backend.repositories.CompanyRepository;
@@ -49,11 +51,16 @@ public class SecurityService {
 
         if (auth == null || !auth.isAuthenticated()
                 || "anonymousUser".equals(auth.getPrincipal())) {
-            throw new AccessDeniedException("Usuário não autenticado");
+            throw new InsufficientAuthenticationException("Usuário não autenticado");
         }
 
         String email = auth.getName(); // subject do JWT
-        return userService.findByEmail(email);
+        try {
+            return userService.findByEmail(email);
+        } catch (ResourceNotFoundException e) {
+            // Não vaze informação sobre existência de usuário; trate como acesso negado.
+            throw new AccessDeniedException("Usuário não autorizado");
+        }
     }
 
     /** Verifica se o usuário é ADMIN. */
@@ -108,7 +115,7 @@ public class SecurityService {
 
         try {
             UUID uuid = UUID.fromString(transactionId);
-            return financialTransactionRepository.findById(uuid)
+            return financialTransactionRepository.findByIdAndDeletedAtIsNull(uuid)
                     .map(tx ->
                             tx.getPerson() != null &&
                                     tx.getPerson().getId().equals(user.getId())
@@ -184,7 +191,7 @@ public class SecurityService {
 
         try {
             UUID uuid = UUID.fromString(invoiceId);
-            return invoiceRepository.findById(uuid)
+            return invoiceRepository.findByIdAndDeletedAtIsNull(uuid)
                     .map(inv -> inv.getCard() != null
                             && inv.getCard().getOwner() != null
                             && inv.getCard().getOwner().getId().equals(user.getId()))

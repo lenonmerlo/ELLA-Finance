@@ -1,9 +1,11 @@
 package com.ella.backend.services;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.ella.backend.audit.Auditable;
 import com.ella.backend.dto.InvoiceInsightsDTO;
@@ -61,7 +63,7 @@ public class InvoiceService {
     }
 
     public InvoiceResponseDTO findById(String id) {
-        Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
+        Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
         return toDTO(invoice);
     }
@@ -70,16 +72,16 @@ public class InvoiceService {
         CreditCard card = creditCardRepository.findById(UUID.fromString(cardId))
                 .orElseThrow(() -> new ResourceNotFoundException("Cartão não encontrado"));
 
-        return invoiceRepository.findByCard(card).stream().map(this::toDTO).toList();
+        return invoiceRepository.findByCardAndDeletedAtIsNull(card).stream().map(this::toDTO).toList();
     }
 
     public List<InvoiceResponseDTO> findAll() {
-        return invoiceRepository.findAll().stream().map(this::toDTO).toList();
+        return invoiceRepository.findByDeletedAtIsNull().stream().map(this::toDTO).toList();
     }
 
     @Auditable(action = "INVOICE_UPDATED", entityType = "Invoice")
     public InvoiceResponseDTO update(String id, InvoiceRequestDTO dto) {
-        Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
+        Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
 
         CreditCard card = creditCardRepository.findById(UUID.fromString(dto.getCardId()))
@@ -110,7 +112,7 @@ public class InvoiceService {
 
     @Auditable(action = "INVOICE_PAYMENT_UPDATED", entityType = "Invoice")
     public InvoiceResponseDTO updatePayment(String id, InvoicePaymentDTO dto) {
-        Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
+        Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
 
         boolean paid = Boolean.TRUE.equals(dto.getPaid());
@@ -130,15 +132,41 @@ public class InvoiceService {
     }
 
     @Auditable(action = "INVOICE_DELETED", entityType = "Invoice")
+        @Transactional
     public void delete(String id) {
-        Invoice invoice = invoiceRepository.findById(UUID.fromString(id))
+        Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(UUID.fromString(id))
                 .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
-        invoiceRepository.delete(invoice);
+
+        LocalDateTime now = LocalDateTime.now();
+
+        // Soft delete invoice
+        invoice.setDeletedAt(now);
+        invoiceRepository.save(invoice);
+
+        // Soft delete all transactions linked via installments (cascade)
+        var installments = installmentRepository.findByInvoice(invoice);
+        var txs = installments.stream()
+            .map(inst -> inst != null ? inst.getTransaction() : null)
+            .filter(java.util.Objects::nonNull)
+            .collect(java.util.stream.Collectors.collectingAndThen(
+                java.util.stream.Collectors.toMap(
+                    tx -> tx.getId(),
+                    tx -> tx,
+                    (a, b) -> a,
+                    java.util.LinkedHashMap::new
+                ),
+                m -> new java.util.ArrayList<>(m.values())
+            ));
+
+        for (var tx : txs) {
+            tx.setDeletedAt(now);
+        }
+        financialTransactionRepository.saveAll(txs);
 
     }
 
         public InvoiceInsightsDTO getInvoiceInsights(UUID invoiceId) {
-        Invoice invoice = invoiceRepository.findById(invoiceId)
+            Invoice invoice = invoiceRepository.findByIdAndDeletedAtIsNull(invoiceId)
             .orElseThrow(() -> new ResourceNotFoundException("Fatura não encontrada"));
 
         // Transações associadas à fatura via installments
@@ -175,7 +203,7 @@ public class InvoiceService {
         if (invoice.getMonth() != null && invoice.getYear() != null && invoice.getCard() != null) {
             int prevMonth = invoice.getMonth() == 1 ? 12 : (invoice.getMonth() - 1);
             int prevYear = invoice.getMonth() == 1 ? (invoice.getYear() - 1) : invoice.getYear();
-            var prev = invoiceRepository.findByCardAndMonthAndYear(invoice.getCard(), prevMonth, prevYear).orElse(null);
+            var prev = invoiceRepository.findByCardAndMonthAndYearAndDeletedAtIsNull(invoice.getCard(), prevMonth, prevYear).orElse(null);
             if (prev != null && prev.getTotalAmount() != null
                 && prev.getTotalAmount().compareTo(java.math.BigDecimal.ZERO) != 0
                 && invoice.getTotalAmount() != null) {
@@ -255,7 +283,7 @@ public class InvoiceService {
         if (owner != null && invoice.getMonth() != null && invoice.getYear() != null) {
             java.time.LocalDate start = java.time.LocalDate.of(invoice.getYear(), invoice.getMonth(), 1);
             java.time.LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
-            var txs = financialTransactionRepository.findByPersonAndTransactionDateBetween(owner, start, end);
+            var txs = financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(owner, start, end);
             for (var t : txs) {
                 com.ella.backend.dto.TransactionSummaryDTO ts = new com.ella.backend.dto.TransactionSummaryDTO();
                 ts.setId(t.getId().toString());

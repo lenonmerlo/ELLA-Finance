@@ -55,7 +55,7 @@ public class FinancialTransactionService {
     @Transactional(readOnly = true)
     public FinancialTransactionResponseDTO findById(String id) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
+                FinancialTransaction entity = transactionRepository.findByIdAndDeletedAtIsNull(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         return FinancialTransactionMapper.toResponseDTO(entity);
@@ -67,7 +67,7 @@ public class FinancialTransactionService {
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
-        return transactionRepository.findByPerson(person)
+        return transactionRepository.findByPersonAndDeletedAtIsNull(person)
                 .stream()
                 .map(FinancialTransactionMapper::toResponseDTO)
                 .toList();
@@ -79,7 +79,7 @@ public class FinancialTransactionService {
         Person person = personRepository.findById(personUuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Pessoa não encontrada"));
 
-        return transactionRepository.findByPersonAndTransactionDateBetween(person, start, end)
+        return transactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, start, end)
                 .stream()
                 .map(FinancialTransactionMapper::toResponseDTO)
                 .toList();
@@ -88,7 +88,7 @@ public class FinancialTransactionService {
     @Auditable(action = "TRANSACTION_UPDATED", entityType = "FinancialTransaction")
     public FinancialTransactionResponseDTO update(String id, FinancialTransactionRequestDTO dto) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
+                FinancialTransaction entity = transactionRepository.findByIdAndDeletedAtIsNull(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
         UUID personUuid = UUID.fromString(dto.personId());
@@ -105,7 +105,7 @@ public class FinancialTransactionService {
     @Auditable(action = "TRANSACTION_DELETED", entityType = "FinancialTransaction")
     public void delete(String id) {
         UUID uuid = UUID.fromString(id);
-        FinancialTransaction entity = transactionRepository.findById(uuid)
+                FinancialTransaction entity = transactionRepository.findByIdAndDeletedAtIsNull(uuid)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
                 // Remove parcelas vinculadas antes de apagar a transação para evitar violação de FK
@@ -125,7 +125,7 @@ public class FinancialTransactionService {
 
                 return request.updates().stream().map(item -> {
                         UUID txId = UUID.fromString(item.id());
-                        FinancialTransaction entity = transactionRepository.findById(txId)
+                        FinancialTransaction entity = transactionRepository.findByIdAndDeletedAtIsNull(txId)
                                         .orElseThrow(() -> new ResourceNotFoundException("Transação não encontrada"));
 
                         if (!entity.getPerson().getId().equals(person.getId())) {

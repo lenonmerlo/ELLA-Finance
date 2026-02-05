@@ -65,7 +65,7 @@ class GoalGeneratorServiceTest {
         when(goalRepository.countByOwnerAndStatus(person, GoalStatus.ACTIVE)).thenReturn(2L);
         when(goalRepository.findByOwner(person)).thenReturn(List.of());
 
-        when(financialTransactionRepository.findByPersonAndTransactionDateBetween(
+        when(financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
             org.mockito.ArgumentMatchers.eq(person),
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any()
@@ -132,7 +132,7 @@ class GoalGeneratorServiceTest {
         when(goalRepository.countByOwnerAndStatus(person, GoalStatus.ACTIVE)).thenReturn(0L);
         when(goalRepository.findByOwner(person)).thenReturn(List.of(existingActive));
 
-        when(financialTransactionRepository.findByPersonAndTransactionDateBetween(
+        when(financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
             org.mockito.ArgumentMatchers.eq(person),
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any()

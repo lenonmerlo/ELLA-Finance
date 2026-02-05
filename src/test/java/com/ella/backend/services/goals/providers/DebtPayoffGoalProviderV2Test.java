@@ -46,7 +46,7 @@ class DebtPayoffGoalProviderV2Test {
         invoice.setYear(YearMonth.now().getYear());
         invoice.setDueDate(LocalDate.now().plusDays(10));
 
-        when(invoiceRepository.findByCardOwner(person)).thenReturn(List.of(invoice));
+        when(invoiceRepository.findByCardOwnerAndDeletedAtIsNull(person)).thenReturn(List.of(invoice));
 
         List<FinancialTransaction> txs = List.of(
                 income(person, LocalDate.now().minusMonths(2).withDayOfMonth(5), "6000"),

@@ -101,14 +101,14 @@ public class ScoreService {
             return 100;
         }
 
-        Invoice latest = invoiceRepository.findTopByCardOwnerOrderByYearDescMonthDesc(person)
+        Invoice latest = invoiceRepository.findTopByCardOwnerAndDeletedAtIsNullOrderByYearDescMonthDesc(person)
                 .orElse(null);
 
         if (latest == null) {
             return 100;
         }
 
-        List<Invoice> invoices = invoiceRepository.findByCardOwnerAndMonthAndYear(person, latest.getMonth(), latest.getYear());
+        List<Invoice> invoices = invoiceRepository.findByCardOwnerAndMonthAndYearAndDeletedAtIsNull(person, latest.getMonth(), latest.getYear());
         BigDecimal totalInvoices = invoices.stream()
                 .map(Invoice::getTotalAmount)
                 .filter(v -> v != null)
@@ -128,7 +128,7 @@ public class ScoreService {
     }
 
     private int calculateOnTimePayment(Person person) {
-        List<Invoice> invoices = invoiceRepository.findByCardOwner(person);
+        List<Invoice> invoices = invoiceRepository.findByCardOwnerAndDeletedAtIsNull(person);
         if (invoices.isEmpty()) {
             return 100;
         }
@@ -161,7 +161,7 @@ public class ScoreService {
         LocalDate end = LocalDate.now();
         LocalDate start = end.minusDays(Math.max(1, diversityLookbackDays));
 
-        List<FinancialTransaction> txs = transactionRepository.findByPersonAndTransactionDateBetween(person, start, end);
+        List<FinancialTransaction> txs = transactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, start, end);
 
         Set<String> categories = new HashSet<>();
         for (FinancialTransaction tx : txs) {
@@ -199,7 +199,7 @@ public class ScoreService {
         LocalDate start = window.getFirst().atDay(1);
         LocalDate end = window.getLast().atEndOfMonth();
 
-        List<FinancialTransaction> txs = transactionRepository.findByPersonAndTransactionDateBetween(person, start, end);
+        List<FinancialTransaction> txs = transactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(person, start, end);
 
         Map<YearMonth, BigDecimal> totals = new HashMap<>();
         for (YearMonth ym : window) {
@@ -241,7 +241,7 @@ public class ScoreService {
     }
 
     private int calculateCreditHistory(Person person) {
-        Invoice first = invoiceRepository.findTopByCardOwnerOrderByDueDateAsc(person)
+        Invoice first = invoiceRepository.findTopByCardOwnerAndDeletedAtIsNullOrderByDueDateAsc(person)
                 .orElse(null);
 
         if (first == null || first.getDueDate() == null) {

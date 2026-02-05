@@ -37,7 +37,7 @@ public class DebtPayoffGoalProvider implements GoalProvider {
             return List.of();
         }
 
-        List<Invoice> invoices = invoiceRepository.findByCardOwner(person);
+        List<Invoice> invoices = invoiceRepository.findByCardOwnerAndDeletedAtIsNull(person);
         if (invoices == null || invoices.isEmpty()) {
             return List.of();
         }

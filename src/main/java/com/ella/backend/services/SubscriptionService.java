@@ -1,5 +1,11 @@
 package com.ella.backend.services;
 
+import java.time.LocalDate;
+import java.util.UUID;
+
+import org.springframework.stereotype.Service;
+
+import com.ella.backend.audit.Auditable;
 import com.ella.backend.dto.payment.SubscriptionResponseDTO;
 import com.ella.backend.entities.Subscription;
 import com.ella.backend.entities.User;
@@ -7,13 +13,8 @@ import com.ella.backend.enums.SubscriptionStatus;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.SubscriptionRepository;
 import com.ella.backend.repositories.UserRepository;
-import com.ella.backend.audit.Auditable;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-
-import java.time.LocalDate;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor

@@ -66,7 +66,7 @@ class UnexpectedSpendingInsightProviderTest {
                 tx(person, LocalDate.of(2026, 2, 5), "Restaurantes", "Restaurante A", "250.00")
         ));
 
-        when(financialTransactionRepository.findByPersonAndTransactionDateBetween(eq(person), any(LocalDate.class), any(LocalDate.class)))
+                when(financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(eq(person), any(LocalDate.class), any(LocalDate.class)))
                 .thenAnswer(invocation -> {
                     LocalDate start = invocation.getArgument(1);
                     return byMonth.getOrDefault(YearMonth.from(start), List.of());
@@ -96,7 +96,7 @@ class UnexpectedSpendingInsightProviderTest {
                 current.minusMonths(1), List.of(tx(person, LocalDate.of(2026, 1, 10), "Restaurantes", "Restaurante A", "100.00"))
         );
 
-        when(financialTransactionRepository.findByPersonAndTransactionDateBetween(eq(person), any(LocalDate.class), any(LocalDate.class)))
+                when(financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(eq(person), any(LocalDate.class), any(LocalDate.class)))
                 .thenAnswer(invocation -> {
                     LocalDate start = invocation.getArgument(1);
                     return byMonth.getOrDefault(YearMonth.from(start), List.of());

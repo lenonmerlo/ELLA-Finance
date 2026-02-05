@@ -140,7 +140,7 @@ class InvoiceUploadServiceDuplicateTransactionsTest {
             return cc;
         });
 
-        when(invoiceRepository.findByCardAndMonthAndYear(any(CreditCard.class), anyInt(), anyInt()))
+        when(invoiceRepository.findByCardAndMonthAndYearAndDeletedAtIsNull(any(CreditCard.class), anyInt(), anyInt()))
             .thenReturn(Optional.empty());
         when(invoiceRepository.save(any(Invoice.class))).thenAnswer(invocation -> {
             Invoice inv = invocation.getArgument(0);

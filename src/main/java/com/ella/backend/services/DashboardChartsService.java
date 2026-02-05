@@ -61,7 +61,7 @@ public class DashboardChartsService {
 
                 log.info("[DashboardChartsService] personId={} year={} month={} range {} -> {}", personId, year, month, rangeStart, rangeEnd);
 
-                List<FinancialTransaction> txs = financialTransactionRepository.findByPersonAndTransactionDateBetween(
+                List<FinancialTransaction> txs = financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
                                 person, rangeStart, rangeEnd
                 );
 
