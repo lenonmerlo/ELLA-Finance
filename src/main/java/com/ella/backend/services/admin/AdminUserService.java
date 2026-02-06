@@ -4,7 +4,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-import jakarta.transaction.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -19,20 +18,21 @@ import com.ella.backend.dto.admin.AdminUpdateUserStatusRequestDTO;
 import com.ella.backend.dto.payment.PaymentResponseDTO;
 import com.ella.backend.dto.payment.SubscriptionResponseDTO;
 import com.ella.backend.entities.Payment;
+import com.ella.backend.entities.Subscription;
 import com.ella.backend.entities.User;
-import com.ella.backend.enums.Plan;
 import com.ella.backend.enums.PaymentProvider;
 import com.ella.backend.enums.PaymentStatus;
+import com.ella.backend.enums.Plan;
 import com.ella.backend.enums.Role;
 import com.ella.backend.enums.Status;
 import com.ella.backend.enums.SubscriptionStatus;
-import com.ella.backend.entities.Subscription;
 import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.repositories.PaymentRepository;
 import com.ella.backend.repositories.SubscriptionRepository;
 import com.ella.backend.repositories.UserRepository;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 
 @Service
