@@ -63,6 +63,32 @@ public class GoalGeneratorService {
         return generateGoalsForPerson(person, DEFAULT_MONTHS_TO_ANALYZE);
     }
 
+    /**
+     * Recalcula metas automáticas do usuário, sem afetar metas criadas manualmente.
+     *
+     * Observação: como não existe flag persistida de "auto gerada" na entidade Goal,
+     * esta rotina não apaga metas existentes. Ela apenas tenta completar até 4 metas ACTIVE
+     * e evita duplicidade por título.
+     */
+    public List<Goal> refreshAutomaticGoalsForUser(String personId, int monthsToAnalyze) {
+        Person person = personRepository.findById(UUID.fromString(personId))
+                .orElseThrow(() -> new ResourceNotFoundException("Person not found"));
+
+        return generateAutomaticGoals(person, monthsToAnalyze);
+    }
+
+    /**
+     * Versão segura para ser chamada em eventos (upload): só recalcula se o usuário já tem metas automáticas.
+     */
+    public void refreshAutomaticGoalsIfAny(String personId, int monthsToAnalyze) {
+        Person person = personRepository.findById(UUID.fromString(personId))
+                .orElseThrow(() -> new ResourceNotFoundException("Person not found"));
+        if (!goalRepository.existsByOwner(person)) {
+            return;
+        }
+        refreshAutomaticGoalsForUser(personId, monthsToAnalyze);
+    }
+
     private List<Goal> generateGoalsForPerson(Person person, int monthsToAnalyze) {
         long activeGoals = goalRepository.countByOwnerAndStatus(person, GoalStatus.ACTIVE);
         if (activeGoals >= MAX_ACTIVE_GOALS) {

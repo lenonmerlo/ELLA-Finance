@@ -12,5 +12,7 @@ public interface GoalRepository extends JpaRepository<Goal, UUID> {
 
     List<Goal> findByOwner(Person owner);
 
+    boolean existsByOwner(Person owner);
+
     long countByOwnerAndStatus(Person owner, GoalStatus status);
 }
