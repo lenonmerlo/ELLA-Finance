@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 
 @Component
@@ -32,17 +33,32 @@ public class ResendEmailProvider implements EmailProviderClient {
             return;
         }
 
-        restClient.post()
-                .uri("/emails")
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Bearer " + apiKey)
-                .body(Map.of(
-                        "from", from,
-                        "to", new String[]{to},
-                        "subject", subject,
-                        "html", html
-                ))
-                .retrieve()
-                .toBodilessEntity();
+        try {
+            restClient.post()
+                    .uri("/emails")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("Authorization", "Bearer " + apiKey)
+                    .body(Map.of(
+                            "from", from,
+                            "to", new String[]{to},
+                            "subject", subject,
+                            "html", html
+                    ))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException e) {
+            String body = e.getResponseBodyAsString();
+            if (body != null && body.length() > 500) {
+                body = body.substring(0, 500) + "...";
+            }
+            log.warn("Resend API call failed. status={}, to={}, from={}, subject={}, body={}",
+                    e.getRawStatusCode(),
+                    to,
+                    from,
+                    subject,
+                    body,
+                    e);
+            throw e;
+        }
     }
 }

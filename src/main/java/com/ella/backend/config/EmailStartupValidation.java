@@ -5,12 +5,19 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 @Component
 public class EmailStartupValidation implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(EmailStartupValidation.class);
+
+    private final Environment environment;
+
+    public EmailStartupValidation(Environment environment) {
+        this.environment = environment;
+    }
 
     @Value("${email.enabled:true}")
     private boolean emailEnabled;
@@ -26,6 +33,9 @@ public class EmailStartupValidation implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        String[] profiles = environment.getActiveProfiles();
+        log.info("Active profiles: {}", (profiles == null || profiles.length == 0) ? "(default)" : String.join(",", profiles));
+
         if (!emailEnabled) {
             log.info("Email disabled (email.enabled=false). No emails will be sent.");
             return;
