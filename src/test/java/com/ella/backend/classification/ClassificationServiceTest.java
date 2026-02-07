@@ -213,4 +213,107 @@ class ClassificationServiceTest {
         assertEquals("Transporte", res.category());
         assertEquals(0.92, res.confidence(), 0.0001);
     }
+
+        @Test
+        void sicrediMerchants_areCategorizedByCuratedMappings() {
+                UUID userId = UUID.randomUUID();
+
+                when(ruleRepository.findByUserIdOrderByPriorityDescCreatedAtDesc(userId))
+                                .thenReturn(List.of());
+                when(feedbackRepository.findSimilarFeedback(eq(userId), anyString()))
+                                .thenReturn(List.of());
+
+                assertSuggests(userId, "Mp Loteriasonlinenfg", "Lazer");
+                assertSuggests(userId, "Ristorante Benedetto", "Alimentação");
+                assertSuggests(userId, "Pao Da Hora", "Alimentação");
+                assertSuggests(userId, "Conve Do Marcao", "Alimentação");
+                assertSuggests(userId, "Getulios Lanches", "Alimentação");
+                assertSuggests(userId, "Fs Pescados", "Alimentação");
+                assertSuggests(userId, "Casa Fontana Restauran", "Alimentação");
+                assertSuggests(userId, "Carneiro Do Tercio", "Alimentação");
+                assertSuggests(userId, "Evino", "Alimentação");
+
+                assertSuggests(userId, "Farfetchbr", "Vestuário");
+                assertSuggests(userId, "Coral Conceito", "Vestuário");
+                assertSuggests(userId, "Ec Acess", "Vestuário");
+                assertSuggests(userId, "Pg Leroy Merlin Le", "Moradia");
+
+                assertSuggests(userId, "Beleza Na Web", "Saúde");
+                assertSuggests(userId, "Tap Air Port", "Viagem");
+                assertSuggests(userId, "Gruta Do Mimoso", "Viagem");
+                assertSuggests(userId, "Bonito On", "Viagem");
+        }
+
+        @Test
+        void itauPersonnaliteMerchants_areCategorizedByCuratedMappings() {
+                UUID userId = UUID.randomUUID();
+
+                when(ruleRepository.findByUserIdOrderByPriorityDescCreatedAtDesc(userId))
+                                .thenReturn(List.of());
+                when(feedbackRepository.findSimilarFeedback(eq(userId), anyString()))
+                                .thenReturn(List.of());
+
+                assertSuggests(userId, "LOUNGERIESA 05/05", "Vestuário");
+                assertSuggests(userId, "NUTRICEARAPRODNA 05/05", "Saúde");
+                assertSuggests(userId, "JAILTONOCULOS 05/05", "Saúde");
+                assertSuggests(userId, "CASAFREITAS 05/05", "Moradia");
+                assertSuggests(userId, "SONOESONHOSCOLC 05/05", "Moradia");
+                assertSuggests(userId, "CONSUL 05/05", "Moradia");
+                assertSuggests(userId, "ALLIANZSEGU 05/05", "Seguros");
+                assertSuggests(userId, "NANOHOTEIS 05/05", "Viagem");
+                assertSuggests(userId, "SMILESFIDEL 05/05", "Viagem");
+                assertSuggests(userId, "TAMCALLCENTER 05/05", "Viagem");
+                assertSuggests(userId, "TEMBICI 05/05", "Transporte");
+                assertSuggests(userId, "ECOMMERCEEMIASOL 05/05", "E-commerce");
+        }
+
+        @Test
+        void santanderMerchants_areCategorizedByCuratedMappings() {
+                UUID userId = UUID.randomUUID();
+
+                when(ruleRepository.findByUserIdOrderByPriorityDescCreatedAtDesc(userId))
+                                .thenReturn(List.of());
+                when(feedbackRepository.findSimilarFeedback(eq(userId), anyString()))
+                                .thenReturn(List.of());
+
+                assertSuggests(userId, "GRUPO CASAS BAHIA", "E-commerce");
+                assertSuggests(userId, "PG *CALVIN KLEIN", "Vestuário");
+                assertSuggests(userId, "AIRBNB * HM39HDCYZW", "Viagem");
+                assertSuggests(userId, "BR1*ORANGE*VIAGENS", "Viagem");
+                assertSuggests(userId, "ESFERA", "Serviços");
+                assertSuggests(userId, "CLUBE*ESFERA", "Serviços");
+                assertSuggests(userId, "EST ANUIDADE DIFERENCIADA T", "Taxas e Juros");
+                assertSuggests(userId, "LECREUSET", "Moradia");
+                assertSuggests(userId, "NOVAPARK LOCACAO E SER", "Transporte");
+                assertSuggests(userId, "ANA RISTORANTE ITALIANO", "Alimentação");
+                assertSuggests(userId, "CEA VSH 650 ECPC", "Vestuário");
+                assertSuggests(userId, "NUTRIMIXPET", "Serviços");
+        }
+
+        @Test
+        void bancoDoBrasilMerchants_areCategorizedByCuratedMappings() {
+                UUID userId = UUID.randomUUID();
+
+                when(ruleRepository.findByUserIdOrderByPriorityDescCreatedAtDesc(userId))
+                                .thenReturn(List.of());
+                when(feedbackRepository.findSimilarFeedback(eq(userId), anyString()))
+                                .thenReturn(List.of());
+
+                assertSuggests(userId, "IOF - COMPRA NO EXTERIOR", "Taxas e Juros");
+                assertSuggests(userId, "IOF - COMPRA INTERNACIONAL", "Taxas e Juros");
+                assertSuggests(userId, "911 MUSEUM WEB 646-757-5567", "Lazer");
+        }
+
+        private void assertSuggests(UUID userId, String description, String expectedCategory) {
+                ClassificationSuggestResponseDTO res = service.suggest(
+                                userId,
+                                description,
+                                new BigDecimal("10.00"),
+                                TransactionType.EXPENSE
+                );
+
+                assertEquals(expectedCategory, res.category(), "description='" + description + "'");
+                assertTrue(res.confidence() >= 0.70, "confidence too low for description='" + description + "'");
+                assertTrue(res.reason().startsWith("merchant mapping:"), "expected merchant mapping reason for description='" + description + "'");
+        }
 }

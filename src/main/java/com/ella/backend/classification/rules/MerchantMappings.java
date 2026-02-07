@@ -28,9 +28,15 @@ public final class MerchantMappings {
 
         public boolean matchesLoose(String looseNormalizedDescription) {
             if (looseNormalizedDescription == null || looseNormalizedDescription.isBlank()) return false;
+            // Avoid false positives for very short fragments (e.g. "cea" matching inside "nutricea...").
+            // For short fragments we require token-boundary match; for longer fragments we keep substring match
+            // to support common bank statement suffixes (e.g. "FARFETCH" matching "FARFETCHBR").
+            String padded = " " + looseNormalizedDescription + " ";
             for (String f : fragments) {
                 if (f == null || f.isBlank()) continue;
-                if (!looseNormalizedDescription.contains(f)) {
+                if (f.length() <= 3) {
+                    if (!padded.contains(" " + f + " ")) return false;
+                } else if (!looseNormalizedDescription.contains(f)) {
                     return false;
                 }
             }
@@ -81,11 +87,111 @@ public final class MerchantMappings {
         // Lazer
         items.add(mapping("MP*NOVOTICKET", "Lazer", 0.75));
 
-        // Diversos
-        items.add(mapping("SHOPPING LIVELO", "Diversos", 0.70));
-        items.add(mapping("DECORART COMERCIO", "Diversos", 0.70));
-        items.add(mapping("MP*EXCLUSIVSERVI", "Diversos", 0.60));
-        items.add(mapping("ASAAS*RADIOMIND", "Diversos", 0.50));
+        // ===== Sicredi: merchants frequentemente caindo em "Outros" =====
+        // Observação: preferimos padrões curtos porém específicos, para tolerar sufixos/códigos (ex.: "FARFETCHBR").
+        items.add(mapping("LOTERIASONLINE", "Lazer", 0.92));
+
+        // Alimentação
+        items.add(mapping("RISTORANTE BENEDETTO", "Alimentação", 0.92));
+        items.add(mapping("PAO DA HORA", "Alimentação", 0.90));
+        items.add(mapping("CONVE DO MARCAO", "Alimentação", 0.85));
+        items.add(mapping("GETULIOS LANCHES", "Alimentação", 0.90));
+        items.add(mapping("FS PESCADOS", "Alimentação", 0.90));
+        items.add(mapping("CASA FONTANA", "Alimentação", 0.88));
+        items.add(mapping("CARNEIRO DO TERCIO", "Alimentação", 0.88));
+        items.add(mapping("EVINO", "Alimentação", 0.80));
+
+        // Moda / Acessórios / Casa
+        items.add(mapping("FARFETCH", "Vestuário", 0.92));
+        items.add(mapping("CORAL CONCEITO", "Vestuário", 0.85));
+        items.add(mapping("EC ACESS", "Vestuário", 0.82));
+        items.add(mapping("LEROY MERLIN", "Moradia", 0.92));
+
+        // Saúde / Beleza
+        items.add(mapping("BELEZA NA WEB", "Saúde", 0.92));
+
+        // Viagens / Turismo
+        items.add(mapping("TAP AIR", "Viagem", 0.92));
+        items.add(mapping("GRUTA DO MIMOSO", "Viagem", 0.92));
+        items.add(mapping("BONITO", "Viagem", 0.70));
+
+        // Serviços / Moradia
+        items.add(mapping("SHOPPING LIVELO", "Serviços", 0.70));
+        items.add(mapping("DECORART COMERCIO", "Moradia", 0.70));
+        items.add(mapping("MP*EXCLUSIVSERVI", "Serviços", 0.60));
+        items.add(mapping("ASAAS*RADIOMIND", "Serviços", 0.55));
+
+        // ===== Itaú Personnalité: merchants com OCR colado em datas/sufixos =====
+        // Objetivo: reduzir "Outros" quando a descrição vem sem espaços (ex.: LOUNGERIESA, NUTRICEARAPRODNA05/05).
+        // Preferimos padrões que ignorem sufixos numéricos variáveis.
+
+        // Vestuário
+        items.add(mapping("LOUNGERIE", "Vestuário", 0.92));
+
+        // Saúde
+        items.add(mapping("NUTRICEARAPRODNA", "Saúde", 0.85));
+        items.add(mapping("JAILTONOCULOS", "Saúde", 0.85));
+
+        // Moradia
+        items.add(mapping("CASAFREITAS", "Moradia", 0.85));
+        items.add(mapping("SONOESONHOSCOLC", "Moradia", 0.85));
+        items.add(mapping("CONSUL", "Moradia", 0.78));
+
+        // Seguros
+        items.add(mapping("ALLIANZSEGU", "Seguros", 0.92));
+
+        // Viagem
+        items.add(mapping("NANOHOTEIS", "Viagem", 0.92));
+        items.add(mapping("SMILESFIDEL", "Viagem", 0.90));
+        items.add(mapping("TAMCALLCENTER", "Viagem", 0.90));
+
+        // Transporte
+        items.add(mapping("TEMBICI", "Transporte", 0.92));
+
+        // E-commerce
+        items.add(mapping("ECOMMERCEEMIASOL", "E-commerce", 0.80));
+
+        // ===== Santander: merchants comuns caindo em "Outros" =====
+        // Preferimos marcas/serviços conhecidos; evitamos mapear nomes de pessoas.
+
+        // Viagem
+        items.add(mapping("AIRBNB", "Viagem", 0.95));
+        items.add(mapping("ORANGE VIAGENS", "Viagem", 0.92));
+
+        // Vestuário
+        items.add(mapping("CALVIN KLEIN", "Vestuário", 0.92));
+        items.add(mapping("CEA", "Vestuário", 0.90));
+
+        // E-commerce
+        items.add(mapping("CASAS BAHIA", "E-commerce", 0.92));
+
+        // Moradia
+        items.add(mapping("LECREUSET", "Moradia", 0.90));
+        items.add(mapping("LE CREUSET", "Moradia", 0.90));
+
+        // Serviços / Programas
+        items.add(mapping("CLUBE ESFERA", "Serviços", 0.90));
+        items.add(mapping("ESFERA", "Serviços", 0.75));
+
+        // Taxas
+        items.add(mapping("ANUIDADE", "Taxas e Juros", 0.85));
+
+        // Transporte (ex.: estacionamento)
+        items.add(mapping("NOVAPARK", "Transporte", 0.85));
+
+        // Alimentação
+        items.add(mapping("ANA RISTORANTE ITALIANO", "Alimentação", 0.90));
+
+        // Pets (sem categoria dedicada no frontend -> Serviços)
+        items.add(mapping("NUTRIMIXPET", "Serviços", 0.75));
+
+        // ===== Banco do Brasil (BB): taxas e compras internacionais =====
+        items.add(mapping("IOF COMPRA NO EXTERIOR", "Taxas e Juros", 0.92));
+        items.add(mapping("IOF COMPRA INTERNACIONAL", "Taxas e Juros", 0.92));
+        items.add(mapping("IOF", "Taxas e Juros", 0.75));
+
+        // Lazer
+        items.add(mapping("911 MUSEUM", "Lazer", 0.88));
 
         MAPPINGS = Collections.unmodifiableList(items);
     }
