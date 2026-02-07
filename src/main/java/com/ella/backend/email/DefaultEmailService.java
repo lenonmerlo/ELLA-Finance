@@ -31,7 +31,17 @@ public class DefaultEmailService implements EmailService {
 
     @Override
     public void send(EmailMessage message) {
-        if (!enabled) return;
+        if (!enabled) {
+            log.debug("Email disabled. Skipping send to={}, subject={}, template={}",
+                    message.getTo(), message.getSubject(), message.getTemplateName());
+            return;
+        }
+
+        if (from == null || from.isBlank()) {
+            log.warn("Email enabled but email.from is blank. Skipping send to={}, subject={}, template={}",
+                    message.getTo(), message.getSubject(), message.getTemplateName());
+            return;
+        }
 
         try {
             String html = templateRenderer.render(message.getTemplateName(), message.getVariables());

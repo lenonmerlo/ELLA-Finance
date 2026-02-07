@@ -1,5 +1,7 @@
 package com.ella.backend.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -7,6 +9,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class EmailStartupValidation implements ApplicationRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(EmailStartupValidation.class);
 
     @Value("${email.enabled:true}")
     private boolean emailEnabled;
@@ -22,7 +26,24 @@ public class EmailStartupValidation implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        if (!emailEnabled || !requireConfigOnStartup) {
+        if (!emailEnabled) {
+            log.info("Email disabled (email.enabled=false). No emails will be sent.");
+            return;
+        }
+
+        boolean fromConfigured = emailFrom != null && !emailFrom.isBlank();
+        boolean resendConfigured = resendApiKey != null && !resendApiKey.isBlank();
+
+        if (!fromConfigured || !resendConfigured) {
+            log.warn(
+                    "Email enabled but configuration is incomplete: fromConfigured={}, resendApiKeyConfigured={}, requireConfigOnStartup={}",
+                    fromConfigured,
+                    resendConfigured,
+                    requireConfigOnStartup
+            );
+        }
+
+        if (!requireConfigOnStartup) {
             return;
         }
 
