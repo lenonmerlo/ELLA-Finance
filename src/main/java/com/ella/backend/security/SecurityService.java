@@ -63,6 +63,15 @@ public class SecurityService {
         }
     }
 
+    /** Retorna o UUID (person_id) do usuário autenticado, ou lança AccessDeniedException. */
+    public UUID getAuthenticatedPersonIdOrThrow() {
+        User user = getAuthenticatedUserOrThrow();
+        if (user.getId() == null) {
+            throw new AccessDeniedException("Usuário não autorizado");
+        }
+        return user.getId();
+    }
+
     /** Verifica se o usuário é ADMIN. */
     private boolean isAdmin(User user) {
         return user.getRole() == Role.ADMIN;

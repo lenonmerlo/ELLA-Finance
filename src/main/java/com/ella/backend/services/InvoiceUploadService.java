@@ -1,6 +1,7 @@
 package com.ella.backend.services;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -13,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -68,51 +70,93 @@ public class InvoiceUploadService {
             throw new IllegalArgumentException("Filename cannot be null");
         }
 
+        User user = resolveAuthenticatedUser();
+
         boolean isPdf = filename.toLowerCase().endsWith(".pdf");
 
         try {
-            List<TransactionData> transactions;
-            if (isPdf) {
-                byte[] pdfBytes = file.getBytes();
-                log.info("[InvoiceUpload][PDF] filename={} bytes={} contentType={}",
-                        filename, pdfBytes != null ? pdfBytes.length : 0, file.getContentType());
-
-                ParsedPdfResult parsed = parsePdfDetailed(pdfBytes, password, dueDate);
-                transactions = parsed.transactions();
-
-                // Importante (design): NÃO deduplicamos transações no pós-processamento do upload.
-                // Entradas idênticas podem representar compras legítimas repetidas.
-                // Aqui apenas removemos linhas nulas (se existirem).
-                transactions = deduplicateTransactions(transactions, true);
-            } else {
-                try (InputStream is = file.getInputStream()) {
-                    transactions = parseCsv(is);
-                }
-                // Mesma regra para CSV: preservar entradas idênticas; limpar apenas nulos.
-                transactions = deduplicateTransactions(transactions, true);
-            }
-
-            if (transactions == null || transactions.isEmpty()) {
-                if (isPdf) {
-                    throw new IllegalArgumentException(
-                        (password != null && !password.isBlank()
-                            ? "Não foi possível extrair transações desse PDF mesmo com senha informada. "
-                            : "Não foi possível extrair transações desse PDF. ") +
-                            "Ele pode estar escaneado (imagem), ter restrição de extração de texto, " +
-                            "ou ter um layout ainda não suportado. " +
-                            "Tente exportar/enviar um CSV, ou um PDF com texto selecionável."
-                    );
-                }
-                throw new IllegalArgumentException(
-                        "Não encontrei transações neste arquivo. Confira se o CSV tem cabeçalho e colunas compatíveis."
-                );
-            }
-            return processTransactions(transactions, filename);
+            byte[] bytes = file.getBytes();
+            return processInvoiceBytesForUser(user, filename, file.getContentType(), bytes, password, dueDate, isPdf);
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException("Failed to process file", e);
         }
+    }
+
+    @Transactional
+    @CacheEvict(cacheNames = "dashboard", allEntries = true)
+    public InvoiceUploadResponseDTO processInvoiceBytesForPerson(UUID personId,
+                                                                 String filename,
+                                                                 String contentType,
+                                                                 byte[] fileBytes,
+                                                                 String password,
+                                                                 String dueDate) {
+        if (personId == null) {
+            throw new IllegalArgumentException("personId cannot be null");
+        }
+        if (filename == null || filename.isBlank()) {
+            throw new IllegalArgumentException("Filename cannot be null");
+        }
+        if (fileBytes == null || fileBytes.length == 0) {
+            throw new IllegalArgumentException("File bytes cannot be empty");
+        }
+
+        User user = userService.findById(personId.toString());
+        boolean isPdf = filename.toLowerCase().endsWith(".pdf");
+        try {
+            return processInvoiceBytesForUser(user, filename, contentType, fileBytes, password, dueDate, isPdf);
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to process file", e);
+        }
+    }
+
+    private InvoiceUploadResponseDTO processInvoiceBytesForUser(User user,
+                                                               String filename,
+                                                               String contentType,
+                                                               byte[] fileBytes,
+                                                               String password,
+                                                               String dueDate,
+                                                               boolean isPdf) throws IOException {
+        List<TransactionData> transactions;
+        if (isPdf) {
+            log.info("[InvoiceUpload][PDF] filename={} bytes={} contentType={}",
+                    filename, fileBytes != null ? fileBytes.length : 0, contentType);
+
+            ParsedPdfResult parsed = parsePdfDetailed(fileBytes, password, dueDate);
+            transactions = parsed.transactions();
+
+            // Importante (design): NÃO deduplicamos transações no pós-processamento do upload.
+            // Entradas idênticas podem representar compras legítimas repetidas.
+            // Aqui apenas removemos linhas nulas (se existirem).
+            transactions = deduplicateTransactions(transactions, true);
+        } else {
+            try (InputStream is = new ByteArrayInputStream(fileBytes)) {
+                transactions = parseCsv(is);
+            }
+            // Mesma regra para CSV: preservar entradas idênticas; limpar apenas nulos.
+            transactions = deduplicateTransactions(transactions, true);
+        }
+
+        if (transactions == null || transactions.isEmpty()) {
+            if (isPdf) {
+                throw new IllegalArgumentException(
+                    (password != null && !password.isBlank()
+                        ? "Não foi possível extrair transações desse PDF mesmo com senha informada. "
+                        : "Não foi possível extrair transações desse PDF. ") +
+                        "Ele pode estar escaneado (imagem), ter restrição de extração de texto, " +
+                        "ou ter um layout ainda não suportado. " +
+                        "Tente exportar/enviar um CSV, ou um PDF com texto selecionável."
+                );
+            }
+            throw new IllegalArgumentException(
+                    "Não encontrei transações neste arquivo. Confira se o CSV tem cabeçalho e colunas compatíveis."
+            );
+        }
+
+        return processTransactions(user, transactions, filename);
     }
 
     private record ParsedPdfResult(List<TransactionData> transactions, ParseResult parseResult, String rawText) {}
@@ -304,10 +348,16 @@ public class InvoiceUploadService {
         return InvoiceExtractionHeuristics.isLikelyGarbledMerchant(description);
     }
 
-    private InvoiceUploadResponseDTO processTransactions(List<TransactionData> transactions, String originalFilename) {
+    private User resolveAuthenticatedUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) throw new IllegalStateException("Usuário não autenticado");
-        User user = userService.findByEmail(auth.getName());
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new IllegalStateException("Usuário não autenticado");
+        }
+        return userService.findByEmail(auth.getName());
+    }
+
+    private InvoiceUploadResponseDTO processTransactions(User user, List<TransactionData> transactions, String originalFilename) {
+        if (user == null) throw new IllegalArgumentException("user cannot be null");
 
         List<FinancialTransactionResponseDTO> responseTransactions = new ArrayList<>();
         BigDecimal totalAmount = BigDecimal.ZERO;
