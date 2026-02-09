@@ -11,11 +11,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import com.ella.backend.dto.FinancialTransactionResponseDTO;
@@ -61,6 +66,9 @@ public class DashboardService {
     private final InvoiceRepository invoiceRepository;
         private final InstallmentRepository installmentRepository;
 
+        @Value("${ella.dashboard.transactions.limit:200}")
+        private int personalTransactionsLimit;
+
     public DashboardResponseDTO buildQuickDashboard(String personId) {
         logger.info("[Dashboard] 🔄 buildQuickDashboard iniciado para personId: {}", personId);
 
@@ -90,7 +98,8 @@ public class DashboardService {
 
     @Cacheable(
             cacheNames = "dashboard",
-            key = "#request.personId + '-' + #request.year + '-' + #request.month"
+            key = "#request.personId + '-' + #request.year + '-' + #request.month",
+            sync = true
     )
     public DashboardResponseDTO buildDashboard(DashboardRequestDTO request) {
         logger.info("[Dashboard] 🔄 buildDashboard iniciado para personId: {}, year: {}, month: {}",
@@ -112,19 +121,25 @@ public class DashboardService {
         logger.debug("[Dashboard] 📅 Período do mês: {} a {}", monthStart, monthEnd);
         logger.debug("[Dashboard] 📅 Período do ano: {} a {}", yearStart, yearEnd);
 
-        // Buscar transações do mês
-        List<FinancialTransaction> personalMonthTx =
-                financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
-                        person, monthStart, monthEnd
-                );
-        logger.info("[Dashboard] 📊 Transações do mês encontradas: {}", personalMonthTx.size());
+        // Performance: não carregue todas as transações do mês/ano.
+        // Use agregações no banco + uma lista limitada para a UI.
+        BigDecimal monthIncome = financialTransactionRepository.sumAmountByPersonAndDateRangeAndType(
+                person, monthStart, monthEnd, TransactionType.INCOME);
+        BigDecimal monthExpenses = financialTransactionRepository.sumAmountByPersonAndDateRangeAndType(
+                person, monthStart, monthEnd, TransactionType.EXPENSE);
 
-        // Buscar transações do ano
-        List<FinancialTransaction> personalYearTx =
-                financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
-                        person, yearStart, yearEnd
-                );
-        logger.info("[Dashboard] 📊 Transações do ano encontradas: {}", personalYearTx.size());
+        BigDecimal yearIncome = financialTransactionRepository.sumAmountByPersonAndDateRangeAndType(
+                person, yearStart, yearEnd, TransactionType.INCOME);
+        BigDecimal yearExpenses = financialTransactionRepository.sumAmountByPersonAndDateRangeAndType(
+                person, yearStart, yearEnd, TransactionType.EXPENSE);
+
+        List<FinancialTransactionRepository.CategoryTotalProjection> monthExpenseByCategory =
+                financialTransactionRepository.sumExpenseTotalsByCategoryForPersonAndDateRange(
+                        person, monthStart, monthEnd);
+
+        List<FinancialTransactionRepository.MonthTypeTotalProjection> yearMonthlyTotals =
+                financialTransactionRepository.sumTotalsByMonthAndTypeForPersonAndDateRange(
+                        person.getId(), yearStart, yearEnd);
 
         List<Invoice> personalInvoicesEntities =
                 invoiceRepository.findByCardOwnerAndMonthAndYearAndDeletedAtIsNull(person, month, year);
@@ -136,21 +151,26 @@ public class DashboardService {
         List<Company> companies = companyRepository.findByOwner(person);
         logger.info("[Dashboard] 🏢 Empresas encontradas: {}", companies.size());
 
-        SummaryDTO personalSummary = buildSummary(personalMonthTx);
-        TotalsDTO personalTotals = buildTotals(personalMonthTx, personalYearTx);
-        List<CategoryBreakdownDTO> personalCategory = buildCategoryBreakdown(personalMonthTx);
-        MonthlyEvolutionDTO personalMonthlyEvolution = buildMonthlyEvolution(personalYearTx, year);
+        SummaryDTO personalSummary = SummaryDTO.builder()
+                .totalIncome(monthIncome)
+                .totalExpenses(monthExpenses)
+                .balance(monthIncome.subtract(monthExpenses))
+                .build();
+
+        TotalsDTO personalTotals = TotalsDTO.builder()
+                .monthIncome(monthIncome)
+                .monthExpenses(monthExpenses)
+                .yearIncome(yearIncome)
+                .yearExpenses(yearExpenses)
+                .build();
+
+        List<CategoryBreakdownDTO> personalCategory = buildCategoryBreakdownFromAggregates(monthExpenseByCategory);
+        MonthlyEvolutionDTO personalMonthlyEvolution = buildMonthlyEvolutionFromAggregates(yearMonthlyTotals, year);
         GoalProgressDTO mainGoalProgress = buildMainGoalProgress(personalGoals);
         List<InvoiceSummaryDTO> personalInvoices = buildInvoiceSummaries(personalInvoicesEntities);
 
-        // ✅ CORRIGIDO: Retornar transações do ANO INTEIRO, não só do mês
-        // Motivo: Transações podem estar em meses passados
-        List<FinancialTransactionResponseDTO> personalTransactions = personalYearTx.stream()
-                .map(FinancialTransactionMapper::toResponseDTO)
-                .sorted(Comparator.comparing(FinancialTransactionResponseDTO::transactionDate).reversed())
-                .collect(Collectors.toList());
-
-        logger.info("[Dashboard] ✅ Transações mapeadas para DTO: {}", personalTransactions.size());
+        List<FinancialTransactionResponseDTO> personalTransactions = loadLimitedTransactions(person, yearStart, monthEnd);
+        logger.info("[Dashboard] ✅ Transações retornadas (limitadas): {}", personalTransactions.size());
 
         List<CompanyDashboardDTO> companyDashboards = buildCompanyDashboards(companies, year, month);
 
@@ -173,6 +193,111 @@ public class DashboardService {
 
         return response;
     }
+
+        private List<FinancialTransactionResponseDTO> loadLimitedTransactions(Person person, LocalDate startDate, LocalDate endDate) {
+                int limit = Math.max(0, personalTransactionsLimit);
+                // Guard rail: evita payloads enormes por configuração acidental.
+                limit = Math.min(limit, 500);
+                if (limit == 0) {
+                        return List.of();
+                }
+
+                var page = financialTransactionRepository.findByPersonAndTransactionDateBetweenAndDeletedAtIsNull(
+                                person,
+                                startDate,
+                                endDate,
+                                PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "transactionDate"))
+                );
+
+                List<FinancialTransactionResponseDTO> list = page.getContent().stream()
+                                .filter(Objects::nonNull)
+                                .map(FinancialTransactionMapper::toResponseDTO)
+                                .sorted(Comparator.comparing(FinancialTransactionResponseDTO::transactionDate).reversed())
+                                .collect(Collectors.toList());
+
+                if (list.size() <= limit) {
+                        return list;
+                }
+                return list.subList(0, limit);
+        }
+
+        private List<CategoryBreakdownDTO> buildCategoryBreakdownFromAggregates(
+                        List<FinancialTransactionRepository.CategoryTotalProjection> monthExpenseByCategory
+        ) {
+                if (monthExpenseByCategory == null || monthExpenseByCategory.isEmpty()) {
+                        return Collections.emptyList();
+                }
+
+                BigDecimal totalExpenses = monthExpenseByCategory.stream()
+                                .map(FinancialTransactionRepository.CategoryTotalProjection::getTotal)
+                                .filter(Objects::nonNull)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                if (totalExpenses.compareTo(BigDecimal.ZERO) == 0) {
+                        return Collections.emptyList();
+                }
+
+                return monthExpenseByCategory.stream()
+                                .filter(p -> p != null && p.getCategory() != null && p.getTotal() != null)
+                                .map(p -> {
+                                        BigDecimal percentage = p.getTotal()
+                                                        .multiply(BigDecimal.valueOf(100))
+                                                        .divide(totalExpenses, 2, RoundingMode.HALF_UP);
+                                        return CategoryBreakdownDTO.builder()
+                                                        .category(p.getCategory())
+                                                        .total(p.getTotal())
+                                                        .percentage(percentage)
+                                                        .build();
+                                })
+                                .sorted(Comparator.comparing(CategoryBreakdownDTO::getTotal).reversed())
+                                .toList();
+        }
+
+        private MonthlyEvolutionDTO buildMonthlyEvolutionFromAggregates(
+                        List<FinancialTransactionRepository.MonthTypeTotalProjection> yearMonthlyTotals,
+                        int year
+        ) {
+                Map<YearMonth, EnumMap<TransactionType, BigDecimal>> map = new HashMap<>();
+
+                if (yearMonthlyTotals != null) {
+                        for (var row : yearMonthlyTotals) {
+                                if (row == null || row.getMonthStart() == null || row.getType() == null || row.getTotal() == null) {
+                                        continue;
+                                }
+
+                                TransactionType type;
+                                try {
+                                        type = TransactionType.valueOf(row.getType());
+                                } catch (Exception ignored) {
+                                        continue;
+                                }
+
+                                YearMonth ym = YearMonth.from(row.getMonthStart());
+                                EnumMap<TransactionType, BigDecimal> totals = map.computeIfAbsent(ym, k -> new EnumMap<>(TransactionType.class));
+                                totals.put(type, row.getTotal());
+                        }
+                }
+
+                List<MonthlyPointDTO> points = new ArrayList<>();
+                for (int m = 1; m <= 12; m++) {
+                        YearMonth ym = YearMonth.of(year, m);
+                        EnumMap<TransactionType, BigDecimal> totals = map.getOrDefault(ym, new EnumMap<>(TransactionType.class));
+
+                        BigDecimal income = totals.getOrDefault(TransactionType.INCOME, BigDecimal.ZERO);
+                        BigDecimal expenses = totals.getOrDefault(TransactionType.EXPENSE, BigDecimal.ZERO);
+
+                        String label = String.format("%04d-%02d", year, m);
+                        points.add(MonthlyPointDTO.builder()
+                                        .monthLabel(label)
+                                        .income(income)
+                                        .expenses(expenses)
+                                        .build());
+                }
+
+                return MonthlyEvolutionDTO.builder()
+                                .points(points)
+                                .build();
+        }
 
     // ================== BLOCO PESSOAL ==================
 
