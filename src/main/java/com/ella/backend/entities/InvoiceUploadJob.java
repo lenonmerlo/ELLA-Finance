@@ -54,6 +54,9 @@ public class InvoiceUploadJob {
     @Column(name = "due_date")
     private String dueDate;
 
+    @Column(name = "file_sha256", length = 64)
+    private String fileSha256;
+
     @Column(name = "file_bytes", nullable = false, columnDefinition = "bytea")
     private byte[] fileBytes;
 

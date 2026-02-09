@@ -1,6 +1,8 @@
 package com.ella.backend.services;
 
 import java.time.LocalDateTime;
+import java.security.MessageDigest;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,6 +38,24 @@ public class InvoiceUploadJobService {
                                      byte[] fileBytes,
                                      String password,
                                      String dueDate) {
+        String fileSha256 = computeSha256Hex(fileBytes);
+
+        if (fileSha256 != null) {
+            Optional<InvoiceUploadJob> existing = jobRepository
+                    .findTopByPersonIdAndFileSha256OrderByCreatedAtDesc(personId, fileSha256);
+
+            if (existing.isPresent()) {
+                InvoiceUploadJob existingJob = existing.get();
+                // Best-effort idempotency: reuse the most recent job for the same file content,
+                // as long as it's not FAILED (FAILED should allow retries).
+                if (existingJob.getStatus() != InvoiceUploadJob.Status.FAILED
+                        && Objects.equals(existingJob.getPassword(), password)
+                        && Objects.equals(existingJob.getDueDate(), dueDate)) {
+                    return existingJob;
+                }
+            }
+        }
+
         InvoiceUploadJob job = new InvoiceUploadJob();
         job.setPersonId(personId);
         job.setStatus(InvoiceUploadJob.Status.PENDING);
@@ -43,6 +63,7 @@ public class InvoiceUploadJobService {
         job.setContentType(contentType);
         job.setPassword(password);
         job.setDueDate(dueDate);
+        job.setFileSha256(fileSha256);
         job.setFileBytes(fileBytes);
         return jobRepository.save(job);
     }
@@ -68,7 +89,9 @@ public class InvoiceUploadJobService {
         }
 
         // Idempotency: don't re-run completed jobs.
-        if (job.getStatus() == InvoiceUploadJob.Status.SUCCEEDED || job.getStatus() == InvoiceUploadJob.Status.FAILED) {
+        if (job.getStatus() == InvoiceUploadJob.Status.SUCCEEDED
+                || job.getStatus() == InvoiceUploadJob.Status.FAILED
+                || job.getStatus() == InvoiceUploadJob.Status.RUNNING) {
             return;
         }
 
@@ -121,5 +144,27 @@ public class InvoiceUploadJobService {
         String m = message.trim();
         if (m.length() <= 2000) return m;
         return m.substring(0, 1997) + "...";
+    }
+
+    private static String computeSha256Hex(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return null;
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(bytes);
+            return toHexLower(hash);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to compute SHA-256", e);
+        }
+    }
+
+    private static String toHexLower(byte[] bytes) {
+        char[] hex = new char[bytes.length * 2];
+        final char[] alphabet = "0123456789abcdef".toCharArray();
+        for (int i = 0; i < bytes.length; i++) {
+            int v = bytes[i] & 0xFF;
+            hex[i * 2] = alphabet[v >>> 4];
+            hex[i * 2 + 1] = alphabet[v & 0x0F];
+        }
+        return new String(hex);
     }
 }
