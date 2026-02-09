@@ -1,11 +1,12 @@
 package com.ella.backend.email;
 
-import com.ella.backend.email.provider.EmailProviderClient;
-import com.ella.backend.email.template.TemplateRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import com.ella.backend.email.provider.EmailProviderClient;
+import com.ella.backend.email.template.TemplateRenderer;
 
 @Service
 public class DefaultEmailService implements EmailService {

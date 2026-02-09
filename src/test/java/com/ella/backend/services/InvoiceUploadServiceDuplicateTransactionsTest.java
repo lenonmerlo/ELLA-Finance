@@ -3,6 +3,7 @@ package com.ella.backend.services;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -150,15 +151,15 @@ class InvoiceUploadServiceDuplicateTransactionsTest {
             return inv;
         });
 
-        when(installmentRepository.findByTransaction(any(FinancialTransaction.class))).thenReturn(List.of());
-        when(installmentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
-        when(transactionRepository.save(any(FinancialTransaction.class))).thenAnswer(invocation -> {
-            FinancialTransaction tx = invocation.getArgument(0);
-            if (tx.getId() == null) tx.setId(UUID.randomUUID());
-            if (tx.getStatus() == null) tx.setStatus(TransactionStatus.PENDING);
-            if (tx.getScope() == null) tx.setScope(TransactionScope.PERSONAL);
-            return tx;
+        when(transactionRepository.saveAll(anyList())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<FinancialTransaction> txs = invocation.getArgument(0);
+            for (FinancialTransaction tx : txs) {
+                if (tx.getId() == null) tx.setId(UUID.randomUUID());
+                if (tx.getStatus() == null) tx.setStatus(TransactionStatus.PENDING);
+                if (tx.getScope() == null) tx.setScope(TransactionScope.PERSONAL);
+            }
+            return txs;
         });
 
         MockMultipartFile file = new MockMultipartFile(
@@ -173,6 +174,6 @@ class InvoiceUploadServiceDuplicateTransactionsTest {
 
         // Then: identical rows are preserved as distinct transactions.
         assertEquals(2, response.getTotalTransactions());
-        verify(transactionRepository, times(2)).save(any(FinancialTransaction.class));
+        verify(transactionRepository, times(1)).saveAll(anyList());
     }
 }

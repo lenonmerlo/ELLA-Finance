@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -53,6 +52,7 @@ import lombok.extern.slf4j.Slf4j;
 public class InvoiceUploadService {
 
     private static final String BUILD_MARKER = "2025-12-29T1022";
+    private static final int UPLOAD_PERSIST_BATCH_SIZE = 50;
 
     private final FinancialTransactionRepository transactionRepository;
     private final UserService userService;
@@ -365,6 +365,11 @@ public class InvoiceUploadService {
         
         // Cache para evitar múltiplas consultas/criações do mesmo cartão no mesmo upload
         Map<String, CreditCard> cardCache = new HashMap<>();
+        // Cache para evitar múltiplas consultas/criações da mesma fatura no mesmo upload
+        Map<String, Invoice> invoiceCache = new HashMap<>();
+
+        List<FinancialTransaction> txBatch = new ArrayList<>(UPLOAD_PERSIST_BATCH_SIZE);
+        List<InstallmentPlan> installmentBatch = new ArrayList<>(UPLOAD_PERSIST_BATCH_SIZE);
 
         // Santander-only: the upload response total should reflect invoice net amount (EXPENSE - INCOME).
         // Other banks keep the previous behavior for backwards compatibility.
@@ -372,6 +377,17 @@ public class InvoiceUploadService {
             if (tx == null || tx.cardName == null) return false;
             return tx.cardName.toLowerCase().contains("santander");
         });
+
+        if (transactions == null || transactions.isEmpty()) {
+            return InvoiceUploadResponseDTO.builder()
+                .invoiceId(null)
+                .totalAmount(BigDecimal.ZERO)
+                .totalTransactions(0)
+                .startDate(null)
+                .endDate(null)
+                .transactions(List.of())
+                .build();
+        }
 
         for (TransactionData data : transactions) {
              CardMetadata cardMetadata = extractCardMetadata(data.cardName, originalFilename);
@@ -386,20 +402,25 @@ public class InvoiceUploadService {
                      invoiceDueDate = estimateDueDateFromCardAndTxDate(card, data.date);
                  }
 
-                 Invoice invoice = getOrCreateInvoice(card, invoiceDueDate);
+                 LocalDate resolvedInvoiceDueDate = invoiceDueDate;
+
+                 String invoiceKey = buildInvoiceCacheKey(card, resolvedInvoiceDueDate);
+                 Invoice invoice = invoiceCache.computeIfAbsent(invoiceKey, k -> getOrCreateInvoice(card, resolvedInvoiceDueDate));
                  lastInvoice = invoice;
-                 
-                 FinancialTransaction tx = saveTransaction(user, data, invoiceDueDate);
-                 createOrLinkInstallment(invoice, tx, data);
+
+                 FinancialTransaction tx = buildTransactionEntity(user, data, resolvedInvoiceDueDate);
+                 txBatch.add(tx);
+                 installmentBatch.add(new InstallmentPlan(invoice, data));
                  
                  if (data.type == TransactionType.EXPENSE) {
-                     invoice.setTotalAmount(invoice.getTotalAmount().add(data.amount));
+                     invoice.setTotalAmount(safe(invoice.getTotalAmount()).add(data.amount));
                  } else {
-                     invoice.setTotalAmount(invoice.getTotalAmount().subtract(data.amount));
+                     invoice.setTotalAmount(safe(invoice.getTotalAmount()).subtract(data.amount));
                  }
-                 invoiceRepository.save(invoice);
-                 
-                 responseTransactions.add(mapToDTO(tx));
+
+                 if (txBatch.size() >= UPLOAD_PERSIST_BATCH_SIZE) {
+                     flushUploadBatch(txBatch, installmentBatch, responseTransactions);
+                 }
 
                  if (isSantanderInvoice) {
                      if (data.type == TransactionType.EXPENSE) {
@@ -412,6 +433,8 @@ public class InvoiceUploadService {
                  }
              }
         }
+
+        flushUploadBatch(txBatch, installmentBatch, responseTransactions);
         
         LocalDate startDate = transactions.stream().map(t -> t.date).min(LocalDate::compareTo).orElse(null);
         LocalDate endDate = transactions.stream().map(t -> t.date).max(LocalDate::compareTo).orElse(null);
@@ -426,7 +449,7 @@ public class InvoiceUploadService {
                 .build();
     }
 
-    private FinancialTransaction saveTransaction(User user, TransactionData txData, LocalDate invoiceDueDate) {
+    private FinancialTransaction buildTransactionEntity(User user, TransactionData txData, LocalDate invoiceDueDate) {
         LocalDate resolvedDueDate = txData.dueDate != null ? txData.dueDate : invoiceDueDate;
         if (resolvedDueDate == null) {
             resolvedDueDate = txData.date;
@@ -452,7 +475,68 @@ public class InvoiceUploadService {
                 .dueDate(resolvedDueDate)
                 .status(TransactionStatus.PENDING)
                 .build();
-        return Objects.requireNonNull(transactionRepository.save(entity));
+
+        return entity;
+    }
+
+    private record InstallmentPlan(Invoice invoice, TransactionData txData) {}
+
+    private void flushUploadBatch(List<FinancialTransaction> txBatch,
+                                 List<InstallmentPlan> installmentBatch,
+                                 List<FinancialTransactionResponseDTO> responseTransactions) {
+        if (txBatch.isEmpty()) {
+            return;
+        }
+
+        List<FinancialTransaction> saved = transactionRepository.saveAll(txBatch);
+        transactionRepository.flush();
+
+        List<com.ella.backend.entities.Installment> installments = new ArrayList<>(installmentBatch.size());
+        for (int i = 0; i < installmentBatch.size(); i++) {
+            InstallmentPlan plan = installmentBatch.get(i);
+            FinancialTransaction tx = saved.get(i);
+            installments.add(buildInstallmentForUpload(plan.invoice(), tx, plan.txData()));
+        }
+
+        installmentRepository.saveAll(installments);
+        installmentRepository.flush();
+
+        for (FinancialTransaction tx : saved) {
+            responseTransactions.add(mapToDTO(tx));
+        }
+
+        txBatch.clear();
+        installmentBatch.clear();
+    }
+
+    private com.ella.backend.entities.Installment buildInstallmentForUpload(Invoice invoice,
+                                                                           FinancialTransaction entity,
+                                                                           TransactionData txData) {
+        int installmentNumber = txData.installmentNumber != null ? txData.installmentNumber : 1;
+        int installmentTotal = txData.installmentTotal != null ? txData.installmentTotal : 1;
+        LocalDate installmentDueDate = txData.dueDate != null ? txData.dueDate : (invoice != null ? invoice.getDueDate() : null);
+        if (installmentDueDate == null) {
+            installmentDueDate = txData.date;
+        }
+
+        var installment = new com.ella.backend.entities.Installment();
+        installment.setInvoice(invoice);
+        installment.setTransaction(entity);
+        installment.setNumber(installmentNumber);
+        installment.setTotal(installmentTotal);
+        installment.setAmount(txData.amount);
+        installment.setDueDate(installmentDueDate);
+        return installment;
+    }
+
+    private String buildInvoiceCacheKey(CreditCard card, LocalDate invoiceDueDate) {
+        LocalDate resolved = invoiceDueDate != null ? invoiceDueDate : LocalDate.now();
+        String cardId = card != null && card.getId() != null ? card.getId().toString() : "unknown-card";
+        return (cardId + "|" + resolved.getYear() + "-" + resolved.getMonthValue()).toLowerCase();
+    }
+
+    private BigDecimal safe(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
     }
 
     private boolean isUncategorizedCategory(String category) {
