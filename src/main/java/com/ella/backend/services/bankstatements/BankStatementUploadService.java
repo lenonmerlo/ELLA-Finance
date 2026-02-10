@@ -17,6 +17,7 @@ import com.ella.backend.entities.BankStatementTransaction;
 import com.ella.backend.repositories.BankStatementRepository;
 import com.ella.backend.services.bankstatements.extractor.BradescoBankStatementExtractorClient;
 import com.ella.backend.services.bankstatements.extractor.C6BankStatementExtractorClient;
+import com.ella.backend.services.bankstatements.extractor.ItauBankStatementExtractorClient;
 import com.ella.backend.services.bankstatements.extractor.NubankBankStatementExtractorClient;
 import com.ella.backend.services.bankstatements.parsers.ItauBankStatementParser;
 import com.ella.backend.services.ocr.PdfTextExtractor;
@@ -41,11 +42,12 @@ public class BankStatementUploadService {
     private final BankStatementRepository bankStatementRepository;
     private final PdfTextExtractor pdfTextExtractor;
     private final C6BankStatementExtractorClient c6ExtractorClient;
+    private final ItauBankStatementExtractorClient itauExtractorClient;
     private final BradescoBankStatementExtractorClient bradescoExtractorClient;
     private final NubankBankStatementExtractorClient nubankExtractorClient;
 
     @Transactional
-    public BankStatementUploadResponseDTO uploadItauPdf(MultipartFile file, UUID userId, String password) {
+    public BankStatementUploadResponseDTO uploadItauPersonnalitePdf(MultipartFile file, UUID userId, String password) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Arquivo ausente ou vazio");
         }
@@ -127,7 +129,7 @@ public class BankStatementUploadService {
 
         BankStatement statement = new BankStatement();
         statement.setUserId(userId);
-        statement.setBank("ITAU");
+        statement.setBank("ITAU_PERSONNALITE");
         statement.setStatementDate(parsed.getStatementDate());
         statement.setOpeningBalance(nz(parsed.getOpeningBalance()));
         statement.setClosingBalance(nz(parsed.getClosingBalance()));
@@ -174,6 +176,86 @@ public class BankStatementUploadService {
             System.err.println("[UPLOAD_DEBUG] BankStatement salvo com ID: " + saved.getId());
         }
 
+        return BankStatementUploadResponseDTO.from(saved);
+    }
+
+    @Transactional
+    public BankStatementUploadResponseDTO uploadItauPdf(MultipartFile file, UUID userId) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Arquivo ausente ou vazio");
+        }
+        if (userId == null) {
+            throw new IllegalArgumentException("Usuário inválido");
+        }
+
+        String filename = file.getOriginalFilename();
+        if (filename == null || !filename.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf")) {
+            throw new IllegalArgumentException("Somente PDF é suportado para extrato bancário Itaú");
+        }
+
+        byte[] pdfBytes;
+        try (InputStream is = file.getInputStream()) {
+            pdfBytes = is.readAllBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("Falha ao ler arquivo PDF", e);
+        }
+
+        ItauBankStatementExtractorClient.ItauBankStatementResponse parsed = itauExtractorClient.parseItauBankStatement(pdfBytes);
+
+        if (parsed == null || parsed.transactions() == null || parsed.transactions().isEmpty()) {
+            String reason = parsed != null ? parsed.reason() : null;
+            if (reason == null || reason.isBlank()) {
+                reason = "UNSUPPORTED_LAYOUT";
+            }
+            throw new IllegalArgumentException("Extrato Itaú não suportado (" + reason + ")");
+        }
+
+        BankStatement statement = new BankStatement();
+        statement.setUserId(userId);
+        statement.setBank("ITAU");
+        statement.setStatementDate(parsed.statementDateAsLocalDate());
+        statement.setOpeningBalance(nz(parsed.openingBalanceAsBigDecimal()));
+        statement.setClosingBalance(nz(parsed.closingBalanceAsBigDecimal()));
+        statement.setCreditLimit(BigDecimal.ZERO);
+        statement.setAvailableLimit(BigDecimal.ZERO);
+
+        boolean debug = isParserDebugEnabled();
+        int persisted = 0;
+
+        for (var tx : parsed.transactions()) {
+            if (tx == null) continue;
+
+            BankStatementTransaction.Type type = tx.typeAsEnumOrNull();
+            if (type == BankStatementTransaction.Type.BALANCE) {
+                if (debug) {
+                    System.err.println("[UPLOAD_DEBUG] Ignorando BALANCE (ITAU): " + tx.description());
+                }
+                continue;
+            }
+
+            BigDecimal amount = nz(tx.amountAsBigDecimal());
+            // Extractor returns amount magnitude; persist signed amount.
+            if (type == BankStatementTransaction.Type.DEBIT) {
+                if (amount.signum() > 0) amount = amount.negate();
+            } else if (type == BankStatementTransaction.Type.CREDIT) {
+                if (amount.signum() < 0) amount = amount.abs();
+            }
+
+            BankStatementTransaction entity = new BankStatementTransaction();
+            entity.setTransactionDate(tx.transactionDateAsLocalDate());
+            entity.setDescription(tx.description() == null ? "" : tx.description());
+            entity.setType(type == null ? BankStatementTransaction.Type.DEBIT : type);
+            entity.setAmount(amount);
+            entity.setBalance(nz(tx.balanceAsBigDecimal()));
+
+            statement.addTransaction(entity);
+            persisted++;
+        }
+
+        log.info("[BankStatementUpload][ITAU] parsed statementDate={} opening={} closing={} persistedTxCount={}",
+                statement.getStatementDate(), statement.getOpeningBalance(), statement.getClosingBalance(), persisted);
+
+        BankStatement saved = bankStatementRepository.save(statement);
         return BankStatementUploadResponseDTO.from(saved);
     }
 

@@ -40,9 +40,11 @@ public class BankStatementController {
         try {
             CustomUserDetails principal = (CustomUserDetails) authentication.getPrincipal();
 
-            String bankNormalized = (bank == null || bank.isBlank()) ? "ITAU" : bank.trim().toUpperCase(java.util.Locale.ROOT);
+            String bankNormalized = (bank == null || bank.isBlank()) ? "ITAU_PERSONNALITE" : bank.trim().toUpperCase(java.util.Locale.ROOT);
             var payload = switch (bankNormalized) {
-                case "ITAU" -> bankStatementUploadService.uploadItauPdf(file, principal.getId(), password);
+                case "ITAU_PERSONNALITE", "PERSONNALITE", "PERSONALITE" ->
+                        bankStatementUploadService.uploadItauPersonnalitePdf(file, principal.getId(), password);
+                case "ITAU" -> bankStatementUploadService.uploadItauPdf(file, principal.getId());
                 case "C6" -> bankStatementUploadService.uploadC6Pdf(file, principal.getId());
                 case "NUBANK", "NU" -> bankStatementUploadService.uploadNubankPdf(file, principal.getId());
                 case "BRADESCO", "BRAD" -> bankStatementUploadService.uploadBradescoPdf(file, principal.getId());
