@@ -38,6 +38,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             final String jwt = authHeader.substring(7);
+
+            // Never accept password reset tokens as access tokens.
+            try {
+                String purpose = jwtService.extractClaim(jwt, c -> c.get(JwtService.CLAIM_PURPOSE, String.class));
+                if (JwtService.PURPOSE_PASSWORD_RESET.equals(purpose)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+            } catch (Exception ignored) {
+                // fall through to normal validation/handling
+            }
+
             final String userEmail = jwtService.extractUsername(jwt);
 
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
