@@ -62,4 +62,25 @@ class JwtServiceTest {
         long deltaMs = expiration.getTime() - issuedAt.getTime();
         assertTrue(Math.abs(deltaMs - 604_800_000L) < 2_000L, "refresh token expiration should be ~7d");
     }
+
+    @Test
+    void generatePasswordResetToken_setsPurposeAndJti_andUsesUserIdAsSubject() {
+        JwtService jwtService = new JwtService();
+        ReflectionTestUtils.setField(jwtService, "secret", "01234567890123456789012345678901");
+        ReflectionTestUtils.setField(jwtService, "resetSecret", "");
+        ReflectionTestUtils.setField(jwtService, "expirationMillis", 3_600_000L);
+        ReflectionTestUtils.setField(jwtService, "refreshExpirationMillis", 604_800_000L);
+
+        String userId = UUID.randomUUID().toString();
+        String jti = UUID.randomUUID().toString();
+        String token = jwtService.generatePasswordResetToken(userId, jti, 15);
+        assertNotNull(token);
+
+        JwtService.PasswordResetPayload payload = jwtService.parseAndValidatePasswordResetToken(token);
+        assertEquals(userId, payload.getUserId());
+        assertEquals(jti, payload.getJti());
+
+        String purpose = jwtService.extractClaim(token, c -> c.get(JwtService.CLAIM_PURPOSE, String.class));
+        assertEquals(JwtService.PURPOSE_PASSWORD_RESET, purpose);
+    }
 }
