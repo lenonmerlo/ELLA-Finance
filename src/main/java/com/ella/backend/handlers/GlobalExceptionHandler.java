@@ -17,6 +17,7 @@ import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.BusinessException;
 import com.ella.backend.exceptions.ConflictException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
+import com.ella.backend.exceptions.TooManyRequestsException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -52,6 +53,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(BadRequestException ex) {
         return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), List.of(ex.getMessage()));
+    }
+
+    // 429 – rate limit
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTooManyRequests(TooManyRequestsException ex) {
+        return buildResponse(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage(), List.of(ex.getMessage()));
     }
 
     // 402 - erro de regra de negócio

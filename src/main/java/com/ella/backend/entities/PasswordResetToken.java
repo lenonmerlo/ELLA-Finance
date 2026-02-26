@@ -35,6 +35,9 @@ public class PasswordResetToken {
     @Column(nullable = false)
     private LocalDateTime expiryDate;
 
+    @Column(name = "used_at")
+    private LocalDateTime usedAt;
+
     public PasswordResetToken(String token, User person) {
         this.token = token;
         this.person = person;

@@ -2,12 +2,16 @@ package com.ella.backend.controllers;
 
 import java.time.LocalDateTime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,27 +24,40 @@ import com.ella.backend.dto.ApiResponse;
 import com.ella.backend.dto.AuthRequestDTO;
 import com.ella.backend.dto.AuthResponseDTO;
 import com.ella.backend.dto.DevResetPasswordRequestDTO;
+import com.ella.backend.dto.ResetPasswordRequestDTO;
 import com.ella.backend.dto.UserResponseDTO;
 import com.ella.backend.entities.User;
 import com.ella.backend.exceptions.BadRequestException;
 import com.ella.backend.exceptions.ResourceNotFoundException;
 import com.ella.backend.mappers.UserMapper;
 import com.ella.backend.security.JwtService;
+import com.ella.backend.security.RateLimitService;
 import com.ella.backend.services.AuthService;
+import com.ella.backend.services.PasswordResetService;
 import com.ella.backend.services.UserService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@Validated
 public class AuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final UserService userService;
     private final AuthService authService;
+    private final PasswordResetService passwordResetService;
+    private final RateLimitService rateLimitService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
 
@@ -233,18 +250,78 @@ public class AuthController {
     }
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<Void> forgotPassword(@RequestParam String email) {
-        authService.forgotPassword(email);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<com.ella.backend.dto.ApiResponse<Void>> forgotPassword(
+            @RequestParam String email,
+            HttpServletRequest request
+    ) {
+        String ip = resolveClientIp(request);
+        boolean allowed = rateLimitService.allowForgotPassword(ip, email);
+        if (allowed) {
+            passwordResetService.requestPasswordReset(email);
+        } else {
+            // Keep response generic; log only IP.
+            log.warn("Rate limit atingido em /forgot-password. ip={}", ip);
+        }
+
+        // Always generic, no email enumeration.
+        return ResponseEntity.ok(com.ella.backend.dto.ApiResponse.message(
+                "Se o e-mail existir, enviaremos instruções para redefinir a senha."
+        ));
     }
 
-    @PostMapping("/reset-password")
-    public ResponseEntity<Void> resetPassword(
-            @RequestParam String token,
-            @RequestParam String newPassword
+    @Operation(summary = "Redefinir senha", description = "Redefine a senha usando um JWT de reset (purpose=pwd_reset) de curta duração")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Senha redefinida", content = @Content(schema = @Schema(implementation = com.ella.backend.dto.ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Token inválido/expirado", content = @Content(schema = @Schema(implementation = com.ella.backend.dto.ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "429", description = "Muitas tentativas", content = @Content(schema = @Schema(implementation = com.ella.backend.dto.ApiResponse.class)))
+    })
+    @PostMapping(value = "/reset-password", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<com.ella.backend.dto.ApiResponse<Void>> resetPasswordJson(
+            @Valid @RequestBody ResetPasswordRequestDTO requestBody,
+            HttpServletRequest request
     ) {
-        authService.resetPassword(token, newPassword);
-        return ResponseEntity.ok().build();
+        String ip = resolveClientIp(request);
+        if (!rateLimitService.allowResetPassword(ip)) {
+            log.warn("Rate limit atingido em /reset-password. ip={}", ip);
+            throw new com.ella.backend.exceptions.TooManyRequestsException("Muitas tentativas. Tente novamente mais tarde.");
+        }
+
+        passwordResetService.resetPassword(requestBody.getToken(), requestBody.getNewPassword());
+        return ResponseEntity.ok(com.ella.backend.dto.ApiResponse.message("Senha redefinida com sucesso"));
+    }
+
+    // Backward compatible (query params)
+    @PostMapping(value = "/reset-password", params = {"token", "newPassword"})
+    public ResponseEntity<com.ella.backend.dto.ApiResponse<Void>> resetPasswordQuery(
+            @RequestParam String token,
+            @RequestParam String newPassword,
+            HttpServletRequest request
+    ) {
+        String ip = resolveClientIp(request);
+        if (!rateLimitService.allowResetPassword(ip)) {
+            log.warn("Rate limit atingido em /reset-password (query). ip={}", ip);
+            throw new com.ella.backend.exceptions.TooManyRequestsException("Muitas tentativas. Tente novamente mais tarde.");
+        }
+
+        passwordResetService.resetPassword(token, newPassword);
+        return ResponseEntity.ok(com.ella.backend.dto.ApiResponse.message("Senha redefinida com sucesso"));
+    }
+
+    private static String resolveClientIp(HttpServletRequest request) {
+        if (request == null) return "unknown";
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            String first = xff.split(",")[0];
+            if (first != null && !first.isBlank()) {
+                return first.trim();
+            }
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        String remote = request.getRemoteAddr();
+        return (remote == null || remote.isBlank()) ? "unknown" : remote;
     }
 
     @PostMapping("/register")

@@ -6,7 +6,7 @@ API do ELLA (assistente financeira) construída em Spring Boot 3.5/Java 21, com 
 
 Projeto **particular e proprietário**. Reprodução/redistribuição não é permitida sem autorização.
 
-- Licença: [LICENSE.md](../LICENSE.md)
+- Licença: [LICENSE.md](LICENSE.md)
 - Aviso: [NOTICE.md](NOTICE.md)
 
 ## Stack
@@ -39,6 +39,19 @@ Projeto **particular e proprietário**. Reprodução/redistribuição não é pe
 - Maven 3.9+
 - PostgreSQL 14+ (database criada; padrão `ella`)
 
+## i18n (PT-BR / EN-US)
+
+O backend suporta respostas localizadas via `MessageSource`.
+
+- Locale padrão: `pt-BR`
+- Detecção de locale: header `Accept-Language`
+- Bundles:
+  - `src/main/resources/messages.properties` (fallback)
+  - `src/main/resources/messages_pt_BR.properties`
+  - `src/main/resources/messages_en_US.properties`
+
+Além disso, mensagens de Bean Validation também usam o `MessageSource` (ex.: `validation.required.*`).
+
 ## OCR (PDF escaneado / imagem)
 
 Por padrão, o upload tenta extrair texto via **PDFBox**. Quando o PDF é escaneado (ou seja, contém apenas imagem), o texto extraído pode vir vazio/curto. Para esses casos, o backend suporta **fallback OCR** via **Tesseract (Tess4J)**.
@@ -57,7 +70,7 @@ Por padrão, o upload tenta extrair texto via **PDFBox**. Quando o PDF é escane
 No `application.properties` (ou via variáveis de ambiente):
 
 ```properties
-# habilita OCR fallback (default: false)
+# habilita OCR fallback (default: true; desative com ELLA_OCR_ENABLED=false)
 ella.ocr.enabled=true
 
 # idioma(s) do tesseract (ex.: por, eng, por+eng)
@@ -111,8 +124,11 @@ set ELLA_OCR_PDF_MAX_PAGES=6
 ## Executar em desenvolvimento
 
 ```bash
-# na pasta backend
-mvn spring-boot:run
+# na pasta backend (Windows)
+./mvnw.cmd spring-boot:run
+
+# ou (Linux/Mac)
+./mvnw spring-boot:run
 ```
 
 A API sobe em `http://localhost:8080` (porta padrão Spring Boot).
@@ -144,13 +160,16 @@ No deploy, configure `RESEND_API_KEY` nas variáveis de ambiente do provedor (Do
 ## Build e testes
 
 ```bash
-mvn clean test          # roda a suíte de testes
-mvn clean package       # gera o jar em target/
+./mvnw test             # roda a suíte de testes
+./mvnw package          # gera o jar em target/
 ```
 
 ## Documentação / Swagger
 
-Com a aplicação rodando, acesse `http://localhost:8080/swagger-ui.html` (via springdoc-openapi-starter).
+Com a aplicação rodando, acesse:
+
+- `http://localhost:8080/swagger-ui.html` (compat)
+- `http://localhost:8080/swagger-ui/index.html` (padrão)
 
 ## Segurança (JWT)
 
@@ -181,3 +200,8 @@ Com a aplicação rodando, acesse `http://localhost:8080/swagger-ui.html` (via s
 - `spring.jpa.hibernate.ddl-auto=validate` exige que o schema exista e esteja alinhado às entidades; migrações criam/ajustam o schema.
 - Para produção, sempre defina `JWT_SECRET` e `DB_PASSWORD` via variáveis de ambiente ou system properties.
 - Para exigir configuração completa de e-mail na inicialização (fail-fast), use `EMAIL_REQUIRE_CONFIG_ON_STARTUP=true`.
+
+## Segurança (nota rápida)
+
+- Não commite `backend/.env` ou `backend/.env.local` (eles ficam ignorados por padrão).
+- Se uma chave vazar/local for compartilhada por engano, faça rotação imediatamente (AWS/Resend/etc.).
