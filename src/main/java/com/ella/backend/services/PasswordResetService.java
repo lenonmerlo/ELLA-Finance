@@ -78,12 +78,20 @@ public class PasswordResetService {
 
         String resetJwt = jwtService.generatePasswordResetToken(user.getId().toString(), jti, resetExpirationMinutes);
 
-        String baseUrl = (frontendBaseUrl == null || frontendBaseUrl.isBlank())
-                ? "http://localhost:5173"
-                : frontendBaseUrl;
+        String baseUrl = (frontendBaseUrl == null) ? "" : frontendBaseUrl.trim();
         String resetPath = (resetPasswordPath == null || resetPasswordPath.isBlank())
                 ? "/reset-password"
                 : resetPasswordPath;
+
+        if (emailEnabled && baseUrl.isBlank()) {
+            log.warn("Email habilitado, mas app.frontend.base-url não configurado; não foi possível gerar link de reset. userId={}, email={}",
+                user.getId(), maskEmail(normalized));
+            return;
+        }
+
+        if (baseUrl.isBlank()) {
+            baseUrl = "http://localhost:5173";
+        }
 
         String resetLink = UriComponentsBuilder.fromHttpUrl(baseUrl)
                 .path(resetPath)

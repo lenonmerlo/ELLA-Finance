@@ -31,6 +31,9 @@ public class EmailStartupValidation implements ApplicationRunner {
     @Value("${email.resend.api-key:}")
     private String resendApiKey;
 
+    @Value("${app.frontend.base-url:}")
+    private String frontendBaseUrl;
+
     @Override
     public void run(ApplicationArguments args) {
         String[] profiles = environment.getActiveProfiles();
@@ -43,12 +46,14 @@ public class EmailStartupValidation implements ApplicationRunner {
 
         boolean fromConfigured = emailFrom != null && !emailFrom.isBlank();
         boolean resendConfigured = resendApiKey != null && !resendApiKey.isBlank();
+        boolean frontendConfigured = frontendBaseUrl != null && !frontendBaseUrl.isBlank();
 
-        if (!fromConfigured || !resendConfigured) {
+        if (!fromConfigured || !resendConfigured || !frontendConfigured) {
             log.warn(
-                    "Email enabled but configuration is incomplete: fromConfigured={}, resendApiKeyConfigured={}, requireConfigOnStartup={}",
+                "Email enabled but configuration is incomplete: fromConfigured={}, resendApiKeyConfigured={}, frontendBaseUrlConfigured={}, requireConfigOnStartup={}",
                     fromConfigured,
                     resendConfigured,
+                frontendConfigured,
                     requireConfigOnStartup
             );
         }
@@ -66,6 +71,12 @@ public class EmailStartupValidation implements ApplicationRunner {
         if (resendApiKey == null || resendApiKey.isBlank()) {
             throw new IllegalStateException(
                     "Email is enabled but Resend API key is missing. Set RESEND_API_KEY or set EMAIL_REQUIRE_CONFIG_ON_STARTUP=false."
+            );
+        }
+
+        if (frontendBaseUrl == null || frontendBaseUrl.isBlank()) {
+            throw new IllegalStateException(
+                    "Email is enabled but app.frontend.base-url is blank. Set APP_FRONTEND_BASE_URL (ex: https://seu-app.vercel.app) or set EMAIL_REQUIRE_CONFIG_ON_STARTUP=false."
             );
         }
     }
