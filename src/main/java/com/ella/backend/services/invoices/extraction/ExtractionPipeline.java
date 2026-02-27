@@ -28,6 +28,7 @@ import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.InvoiceParserSelector;
 import com.ella.backend.services.invoices.parsers.InvoiceParserStrategy;
 import com.ella.backend.services.invoices.parsers.ItauInvoiceParser;
+import com.ella.backend.services.invoices.parsers.ItauLatamPassInvoiceParser;
 import com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
 import com.ella.backend.services.invoices.parsers.ParseResult;
 import com.ella.backend.services.invoices.parsers.PdfAwareInvoiceParser;
@@ -132,7 +133,8 @@ public class ExtractionPipeline {
                     || baselineParser instanceof NubankInvoiceParser
                     || baselineParser instanceof BancoDoBrasilInvoiceParser
                     || baselineParser instanceof BradescoInvoiceParser
-                    || baselineParser instanceof SantanderInvoiceParser;
+                    || baselineParser instanceof SantanderInvoiceParser
+                    || baselineParser instanceof ItauLatamPassInvoiceParser;
 
             logExtractedTextIfEnabled("PDFBox", text);
             logDueDateSignalsIfEnabled("PDFBox", text);
