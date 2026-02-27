@@ -138,4 +138,34 @@ class InvoiceParserSelectorTest {
         InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
         assertTrue(factory.getParser(text).isEmpty());
     }
+
+    @Test
+    void selectsItauLatamPassOverPersonaliteForLatamPassLayout() {
+        String text = String.join("\n",
+                "Banco Itaú S.A.",
+                "Resumo da fatura em R$",
+                "Vencimento: 25/02/2026",
+                "",
+                "Pagamentos efetuados",
+                "22/01 PAGAMENTO PIX -62,00",
+                "Total dos pagamentos -62,00",
+                "",
+                "Lançamentos: compras e saques",
+                "05/02 LATAM AIR*0000 01/10 162,38",
+                "10/02 LATAM DCP ND*Q 01/06 529,89",
+                "",
+                "Lançamentos: produtos e serviços",
+                "18/01 Mensalidade - Plano do 62,00",
+                "",
+                "Compras parceladas - próximas faturas",
+                "05/02 LATAM AIR*0000 02/10 162,34"
+        );
+
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
+        InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
+
+        assertEquals("ItauLatamPassInvoiceParser", selection.chosen().parser().getClass().getSimpleName());
+        assertTrue(selection.chosen().applicable());
+        assertTrue(selection.chosen().txCount() > 0);
+    }
 }
