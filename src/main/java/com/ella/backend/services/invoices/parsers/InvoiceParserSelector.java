@@ -4,12 +4,17 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.ella.backend.services.invoices.util.NormalizeUtil;
 
 /**
  * Centralizes parser selection so we can unit-test and avoid regressions.
  */
 public final class InvoiceParserSelector {
+
+    private static final Logger log = LoggerFactory.getLogger(InvoiceParserSelector.class);
 
     private InvoiceParserSelector() {
     }
@@ -74,8 +79,21 @@ public final class InvoiceParserSelector {
             }
 
             int score = scoreCandidate(applicable, dueDate, txCount);
+
+            // Prefer the more specific LATAM PASS parser when it matches.
+            // Rationale: the Personalité parser often extracts one extra "payment" line from the
+            // demonstrative section (e.g., "PAGAMENTO PIX"), increasing txCount and winning the
+            // selector score, even though that line must be ignored.
+            if (parser instanceof ItauLatamPassInvoiceParser && applicable) {
+                score += 25_000;
+            }
             Candidate candidate = new Candidate(parser, score, applicable, dueDate, txCount, txs);
             evaluated.add(candidate);
+
+            if (log.isDebugEnabled()) {
+                log.debug("[InvoiceParserSelector] candidate parser={} applicable={} dueDate={} txCount={} score={}",
+                        parser.getClass().getSimpleName(), applicable, dueDate, txCount, score);
+            }
 
             if (best == null || candidate.score > best.score) {
                 best = candidate;
@@ -84,6 +102,11 @@ public final class InvoiceParserSelector {
 
         if (best == null || best.score <= 0) {
             throw new IllegalArgumentException("Layout de fatura não suportado.");
+        }
+
+        if (log.isDebugEnabled()) {
+            log.debug("[InvoiceParserSelector] chosen parser={} score={} applicable={} dueDate={} txCount={}",
+                    best.parser.getClass().getSimpleName(), best.score, best.applicable, best.dueDate, best.txCount);
         }
 
         return new Selection(best, evaluated);
