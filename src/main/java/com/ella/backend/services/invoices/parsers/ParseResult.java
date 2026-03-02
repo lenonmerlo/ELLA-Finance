@@ -15,6 +15,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ParseResult {
     private List<TransactionData> transactions;
+    private List<String> unmatchedTransactions;
     private LocalDate dueDate;
     private BigDecimal totalAmount;
     private String cardLastDigits;

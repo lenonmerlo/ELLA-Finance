@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -121,12 +122,16 @@ public class InvoiceUploadService {
                                                                String dueDate,
                                                                boolean isPdf) throws IOException {
         List<TransactionData> transactions;
+        ParseResult parseResult = null;
+        String rawText = null;
         if (isPdf) {
             log.info("[InvoiceUpload][PDF] filename={} bytes={} contentType={}",
                     filename, fileBytes != null ? fileBytes.length : 0, contentType);
 
             ParsedPdfResult parsed = parsePdfDetailed(fileBytes, password, dueDate);
             transactions = parsed.transactions();
+            parseResult = parsed.parseResult();
+            rawText = parsed.rawText();
 
             // Importante (design): NÃO deduplicamos transações no pós-processamento do upload.
             // Entradas idênticas podem representar compras legítimas repetidas.
@@ -156,7 +161,7 @@ public class InvoiceUploadService {
             );
         }
 
-        return processTransactions(user, transactions, filename);
+        return processTransactions(user, transactions, filename, parseResult, rawText);
     }
 
     private record ParsedPdfResult(List<TransactionData> transactions, ParseResult parseResult, String rawText) {}
@@ -356,8 +361,15 @@ public class InvoiceUploadService {
         return userService.findByEmail(auth.getName());
     }
 
-    private InvoiceUploadResponseDTO processTransactions(User user, List<TransactionData> transactions, String originalFilename) {
+    private InvoiceUploadResponseDTO processTransactions(User user,
+                                                         List<TransactionData> transactions,
+                                                         String originalFilename,
+                                                         ParseResult parseResult,
+                                                         String rawText) {
         if (user == null) throw new IllegalArgumentException("user cannot be null");
+
+        InvoiceUploadResponseDTO.CaptureSummaryDTO captureSummary = buildCaptureSummary(parseResult, rawText, transactions);
+        List<String> unmatchedTransactions = parseResult != null ? parseResult.getUnmatchedTransactions() : null;
 
         List<FinancialTransactionResponseDTO> responseTransactions = new ArrayList<>();
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -386,6 +398,8 @@ public class InvoiceUploadService {
                 .startDate(null)
                 .endDate(null)
                 .transactions(List.of())
+                .captureSummary(captureSummary)
+                .unmatchedTransactions(unmatchedTransactions)
                 .build();
         }
 
@@ -446,7 +460,137 @@ public class InvoiceUploadService {
                 .startDate(startDate)
                 .endDate(endDate)
                 .transactions(responseTransactions)
+                .captureSummary(captureSummary)
+                .unmatchedTransactions(unmatchedTransactions)
                 .build();
+    }
+
+    private InvoiceUploadResponseDTO.CaptureSummaryDTO buildCaptureSummary(ParseResult parseResult,
+                                                                           String rawText,
+                                                                           List<TransactionData> transactions) {
+        if (parseResult == null) {
+            return null;
+        }
+
+        BigDecimal invoiceAmount = extractInvoiceGrandTotal(rawText);
+        if (invoiceAmount == null) {
+            invoiceAmount = parseResult.getTotalAmount();
+        }
+        if (invoiceAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+
+        BigDecimal capturedAmount = BigDecimal.ZERO;
+        if (transactions != null) {
+            for (TransactionData tx : transactions) {
+                if (tx == null || tx.amount == null || tx.type == null) continue;
+                if (tx.type == TransactionType.EXPENSE) {
+                    capturedAmount = capturedAmount.add(tx.amount.abs());
+                }
+            }
+        }
+
+        BigDecimal difference = invoiceAmount.subtract(capturedAmount);
+        BigDecimal coveragePercent = capturedAmount
+                .multiply(BigDecimal.valueOf(100))
+                .divide(invoiceAmount, 2, RoundingMode.HALF_UP);
+
+        InvoiceSummaryBreakdown breakdown = extractInvoiceSummaryBreakdown(rawText);
+        BigDecimal previousBalance = breakdown.previousBalance();
+        BigDecimal creditsPayments = breakdown.creditsPayments();
+        BigDecimal purchasesDebits = breakdown.purchasesDebits();
+
+        BigDecimal previousOutstanding = null;
+        if (previousBalance != null && creditsPayments != null) {
+            previousOutstanding = previousBalance.subtract(creditsPayments);
+        }
+
+        BigDecimal periodDifference = null;
+        BigDecimal periodCoveragePercent = null;
+        boolean periodMatch = false;
+        if (purchasesDebits != null && purchasesDebits.compareTo(BigDecimal.ZERO) > 0) {
+            periodDifference = purchasesDebits.subtract(capturedAmount);
+            periodCoveragePercent = capturedAmount
+                .multiply(BigDecimal.valueOf(100))
+                .divide(purchasesDebits, 2, RoundingMode.HALF_UP);
+            periodMatch = periodDifference.abs().compareTo(new BigDecimal("1.00")) <= 0;
+        }
+
+        boolean hasMismatch = difference.abs().compareTo(new BigDecimal("1.00")) > 0;
+        boolean hasPreviousOutstanding = previousOutstanding != null
+            && previousOutstanding.abs().compareTo(new BigDecimal("1.00")) > 0;
+        boolean shouldRecommendModal = periodMatch && hasMismatch && hasPreviousOutstanding;
+
+        return InvoiceUploadResponseDTO.CaptureSummaryDTO.builder()
+                .invoiceAmount(invoiceAmount)
+                .capturedAmount(capturedAmount)
+                .differenceAmount(difference)
+                .coveragePercent(coveragePercent)
+                .previousBalance(previousBalance)
+                .creditsPayments(creditsPayments)
+                .purchasesDebits(purchasesDebits)
+                .previousOutstandingAmount(previousOutstanding)
+                .periodDifferenceAmount(periodDifference)
+                .periodCoveragePercent(periodCoveragePercent)
+                .periodMatch(periodMatch)
+                .modalRecommended(shouldRecommendModal)
+                .build();
+    }
+
+    private record InvoiceSummaryBreakdown(
+            BigDecimal previousBalance,
+            BigDecimal creditsPayments,
+            BigDecimal purchasesDebits
+    ) {}
+
+    private InvoiceSummaryBreakdown extractInvoiceSummaryBreakdown(String rawText) {
+        if (rawText == null || rawText.isBlank()) {
+            return new InvoiceSummaryBreakdown(null, null, null);
+        }
+
+        String source = rawText.replace('\u00A0', ' ');
+
+        BigDecimal previousBalance = extractAmountAfterLabel(source, "saldo\\s+anterior");
+        BigDecimal creditsPayments = extractAmountAfterLabel(source, "cr[eé]ditos\\s*/\\s*pagamentos");
+        BigDecimal purchasesDebits = extractAmountAfterLabel(source, "compras\\s*/\\s*d[eé]bitos");
+
+        return new InvoiceSummaryBreakdown(previousBalance, creditsPayments, purchasesDebits);
+    }
+
+    private BigDecimal extractAmountAfterLabel(String text, String labelRegex) {
+        if (text == null || text.isBlank() || labelRegex == null || labelRegex.isBlank()) return null;
+        Pattern pattern = Pattern.compile(
+                "(?is)\\b" + labelRegex + "\\b[^0-9]{0,35}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"
+        );
+        Matcher matcher = pattern.matcher(text);
+        if (!matcher.find()) return null;
+        return parseBrlAmountLoose(matcher.group(1));
+    }
+
+    private BigDecimal extractInvoiceGrandTotal(String rawText) {
+        if (rawText == null || rawText.isBlank()) return null;
+        Pattern p = Pattern.compile(
+                "(?is)\\btotal\\s+(?:da\\s+)?fatura\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])");
+        Matcher m = p.matcher(rawText.replace('\u00A0', ' '));
+        if (!m.find()) return null;
+        return parseBrlAmountLoose(m.group(1));
+    }
+
+    private BigDecimal parseBrlAmountLoose(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim().replace("R$", "").replace(" ", "");
+        s = s.replaceAll("[^0-9,\\.]", "");
+        if (s.isEmpty()) return null;
+        if (s.contains(",")) {
+            s = s.replace(".", "").replace(",", ".");
+        } else if (!s.matches("-?\\d+\\.\\d{2}")) {
+            s = s.replace(".", "");
+        }
+        try {
+            return new BigDecimal(s);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private FinancialTransaction buildTransactionEntity(User user, TransactionData txData, LocalDate invoiceDueDate) {

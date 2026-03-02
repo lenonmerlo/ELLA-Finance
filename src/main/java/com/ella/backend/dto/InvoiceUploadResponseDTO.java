@@ -18,4 +18,23 @@ public class InvoiceUploadResponseDTO {
     private LocalDate endDate;
     private List<FinancialTransactionResponseDTO> transactions;
     private TripSuggestionDTO tripSuggestion;
+    private CaptureSummaryDTO captureSummary;
+    private List<String> unmatchedTransactions;
+
+    @Data
+    @Builder
+    public static class CaptureSummaryDTO {
+        private BigDecimal invoiceAmount;
+        private BigDecimal capturedAmount;
+        private BigDecimal differenceAmount;
+        private BigDecimal coveragePercent;
+        private BigDecimal previousBalance;
+        private BigDecimal creditsPayments;
+        private BigDecimal purchasesDebits;
+        private BigDecimal previousOutstandingAmount;
+        private BigDecimal periodDifferenceAmount;
+        private BigDecimal periodCoveragePercent;
+        private boolean periodMatch;
+        private boolean modalRecommended;
+    }
 }

@@ -38,6 +38,15 @@ final class MerchantCategoryMapper {
             return "Taxas e Juros";
         }
 
+        // Encargos financeiros recorrentes em fatura
+        if (containsAny(n, nCompact,
+                "ENCARGOS DE ROTATIVO",
+                "ENCARGOS SOBREPARCELADO",
+                "JUROS DE MORA",
+                "MULTA POR ATRASO")) {
+            return "Taxas e Juros";
+        }
+
         // ===== Mapeamentos explícitos (merchants recorrentes Sicredi) =====
         // Importante: estes são mais específicos e entram antes das heurísticas genéricas.
         if (containsAny(n, nCompact,
@@ -68,6 +77,20 @@ final class MerchantCategoryMapper {
         }
 
         if (containsAny(n, nCompact,
+                "CLUBE LIVELO",
+                "LIVELO CLUB",
+                "SHOPPING LIVELO")) {
+            return "Serviços";
+        }
+
+        if (containsAny(n, nCompact,
+                "SMILES FIDEL",
+                "SMILES FIDELIDADE",
+                "SMILES BILH")) {
+            return "Viagem";
+        }
+
+        if (containsAny(n, nCompact,
                 "PRONACE",
                 "GLOBO FORMULAS",
                 "GLOBO FORMULAS",
@@ -90,7 +113,8 @@ final class MerchantCategoryMapper {
 
         if (containsAny(n, nCompact,
                 "MOTOLIBRE",
-                "MOTO LIBRE")) {
+                "MOTO LIBRE",
+                "MOBILIT ENTERPRISE")) {
             return "Transporte";
         }
 
@@ -360,6 +384,7 @@ final class MerchantCategoryMapper {
         if (containsAny(n, nCompact,
                 "BRADESCO AUTO",
                 "MONGERAL",
+            "PRUDENTIAL",
                 "SEGURO",
                 "SEGUROS",
                 "SEGURADORA",
