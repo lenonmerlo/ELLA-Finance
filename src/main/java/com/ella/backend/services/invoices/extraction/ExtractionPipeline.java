@@ -524,6 +524,10 @@ public class ExtractionPipeline {
         String normalized = text.replace('\u00A0', ' ');
 
         List<Pattern> patterns = List.of(
+            // Bradesco fatura mensal: for expense-only extraction validation, compare against
+            // "Compras/Débitos" from "Resumo da fatura" (not the grand "Total da fatura").
+            Pattern.compile("(?is)\\(\\+\\)\\s*compras\\s*/\\s*d[eé]bitos\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
+
             // Itaú: o PDF costuma ter "Total da fatura anterior" + "Total desta fatura".
             // Precisamos priorizar a fatura atual e NÃO capturar a anterior.
             Pattern.compile("(?is)\\btotal\\s+desta\\s+fatura\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
