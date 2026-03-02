@@ -19,11 +19,13 @@ public class InvoiceParserFactory {
         log.info("[InvoiceParserFactory] Using ella.extractor.base-url={}", ellaExtractorBaseUrl);
         EllaExtractorClient extractorClient = new EllaExtractorClient(ellaExtractorBaseUrl);
         EllaExtractorLatamPassClient latamPassClient = new EllaExtractorLatamPassClient(ellaExtractorBaseUrl);
+        EllaExtractorBradescoFaturaMensalV1Client bradescoFaturaMensalV1Client = new EllaExtractorBradescoFaturaMensalV1Client(ellaExtractorBaseUrl);
         this.parsers = List.of(
                 // More specific parsers first
             new ItauLatamPassInvoiceParser(latamPassClient),
             new ItauPersonaliteInvoiceParser(extractorClient),
                 new ItauInvoiceParser(),
+                new BradescoFaturaMensalV1InvoiceParser(bradescoFaturaMensalV1Client),
                 new BradescoInvoiceParser(),
                 new BancoDoBrasilInvoiceParser(),
             new SicrediExtractorParser(extractorClient),
