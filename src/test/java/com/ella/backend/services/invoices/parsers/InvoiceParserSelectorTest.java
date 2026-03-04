@@ -3,6 +3,8 @@ package com.ella.backend.services.invoices.parsers;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.LocalDate;
+
 import org.junit.jupiter.api.Test;
 
 class InvoiceParserSelectorTest {
@@ -168,4 +170,30 @@ class InvoiceParserSelectorTest {
         assertTrue(selection.chosen().applicable());
         assertTrue(selection.chosen().txCount() > 0);
     }
+
+    @Test
+    void selectsSantanderExtractorWhenSantanderContainsGenericComprasParceladasPhrase() {
+        String text = String.join("\n",
+                "Olá, Mariana! Esta é a fatura do seu cartão SANTANDER",
+                "Total a Pagar",
+                "R$ 1.381,94",
+                "Vencimento",
+                "25/02/2026",
+                "MARIANA O DE CASTRO - 5228 XXXX XXXX 6605",
+                "Detalhamento da Fatura",
+                "Despesas",
+                "18/02 ANUIDADE DIFERENCIADA 166,66",
+                "Resumo da Fatura",
+                "Saldo total consolidado de obrigações futuras",
+                "Compras parceladas com e sem juros: operações de crédito e tarifas",
+                "189,33");
+
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
+        InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(factory.getParsers(), text);
+
+        assertEquals("SantanderExtractorParser", selection.chosen().parser().getClass().getSimpleName());
+        assertTrue(selection.chosen().applicable());
+        assertEquals(LocalDate.of(2026, 2, 25), selection.chosen().dueDate());
+    }
+
 }

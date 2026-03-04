@@ -119,4 +119,56 @@ class InvoiceParserFactoryTest {
         assertNotNull(selection.chosen());
         assertTrue(selection.chosen().parser() instanceof ItauPersonaliteInvoiceParser);
     }
+
+    @Test
+    void selectsSantanderExtractorParserForSantanderLayout() {
+        String santanderText = String.join("\n",
+                "SANTANDER",
+                "Total a Pagar R$ 1.381,94",
+                "Vencimento 25/02/2026",
+                "MARISA A O CASTRO - 5228 XXXX XXXX 5916",
+                "Despesas",
+                "22/01 PAPEL JORNAL PAPELARIA 79,80");
+
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
+        Optional<InvoiceParserStrategy> parser = factory.getParser(santanderText);
+
+        assertTrue(parser.isPresent());
+        assertTrue(parser.get() instanceof SantanderExtractorParser);
+    }
+
+    @Test
+    void selectsBancoDoBrasilExtractorParserForBbLayout() {
+        String bbText = String.join("\n",
+                "BANCO DO BRASIL",
+                "OUROCARD VISA INFINITE Final 9194",
+                "Resumo da fatura",
+                "Total da fatura R$ 14.118,91",
+                "Vencimento 25/09/2025",
+                "Data Descrição País Valor",
+                "21/08 911 MUSEUM WEB NY R$ 409,79");
+
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
+        Optional<InvoiceParserStrategy> parser = factory.getParser(bbText);
+
+        assertTrue(parser.isPresent());
+        assertTrue(parser.get() instanceof BancoDoBrasilExtractorParser);
+    }
+
+    @Test
+    void selectsC6ExtractorParserForC6InvoiceLayout() {
+        String c6Text = String.join("\n",
+                "C6 BANK",
+                "Olá! Sua fatura com vencimento em Dezembro chegou no valor de R$ 5.098,40",
+                "Vencimento: 20/12/2025",
+                "Transações do cartão principal",
+                "C6 Carbon Virtual Final 5867 - TITULAR",
+                "27 out AIRBNB * HMF99EFWK9 - Parcela 2/3 369,48");
+
+        InvoiceParserFactory factory = new InvoiceParserFactory("http://localhost:8000");
+        Optional<InvoiceParserStrategy> parser = factory.getParser(c6Text);
+
+        assertTrue(parser.isPresent());
+        assertTrue(parser.get() instanceof C6ExtractorParser);
+    }
 }

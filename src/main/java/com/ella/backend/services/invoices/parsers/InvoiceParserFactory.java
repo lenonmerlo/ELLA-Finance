@@ -27,12 +27,15 @@ public class InvoiceParserFactory {
                 new ItauInvoiceParser(),
                 new BradescoFaturaMensalV1InvoiceParser(bradescoFaturaMensalV1Client),
                 new BradescoInvoiceParser(),
+                new BancoDoBrasilExtractorParser(extractorClient),
                 new BancoDoBrasilInvoiceParser(),
             new SicrediExtractorParser(extractorClient),
                 // Mercado Pago support disabled (safe removal): keep code, but prevent selection.
                 // new MercadoPagoInvoiceParser(),
                 new NubankInvoiceParser(),
+                new C6ExtractorParser(extractorClient),
                 new C6InvoiceParser(),
+                new SantanderExtractorParser(extractorClient),
                 // Santander has broader applicability signals; keep it last to avoid stealing other banks.
                 new SantanderInvoiceParser()
         );
