@@ -41,12 +41,12 @@ public class DashboardInvoicesService {
             List<String> sample = invoices.stream()
                 .limit(5)
                 .map(inv -> String.format(
-                    "%s|%s/%s|due=%s|total(expenseOnly)=%s",
+                    "%s|%s/%s|due=%s|total(display)=%s",
                     inv.getId(),
                     inv.getMonth(),
                     inv.getYear(),
                     inv.getDueDate(),
-                    calculateInvoiceNetTotal(inv)))
+                    calculateInvoiceDisplayTotal(inv)))
                 .toList();
             log.info("[DashboardInvoicesService] personId={} month/year={}/{} invoices={} samples={}",
                 personId, month, year, invoices.size(), sample);
@@ -80,7 +80,7 @@ public class DashboardInvoicesService {
                             .creditCardBrand(inv.getCard().getBrand())
                             .creditCardLastFourDigits(inv.getCard().getLastFourDigits())
                             .personName(holderName)
-                            .totalAmount(calculateInvoiceNetTotal(inv))
+                            .totalAmount(calculateInvoiceDisplayTotal(inv))
                             .dueDate(inv.getDueDate())
                             .isOverdue(isOverdue)
                         .isPaid(isPaid)
@@ -88,6 +88,14 @@ public class DashboardInvoicesService {
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    private BigDecimal calculateInvoiceDisplayTotal(Invoice invoice) {
+        if (invoice == null) return BigDecimal.ZERO;
+        if (invoice.getTotalAmount() != null && invoice.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
+            return invoice.getTotalAmount();
+        }
+        return calculateInvoiceNetTotal(invoice);
     }
 
     private BigDecimal calculateInvoiceNetTotal(Invoice invoice) {

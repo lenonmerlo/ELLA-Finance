@@ -51,6 +51,10 @@ public final class InvoiceParserSelector {
             // Guardrail: never let Bradesco win on clearly-Itaú PDFs.
             // This happens because several parsers can extract a due date + generic dd/MM lines even when not applicable.
             if (parser instanceof BradescoInvoiceParser && looksLikeItauInvoice(t)) {
+                if (log.isDebugEnabled()) {
+                    log.debug("[InvoiceParserSelector] guardrail skip parser={} reason=looksLikeItauInvoice",
+                            parser.getClass().getSimpleName());
+                }
                 Candidate candidate = new Candidate(parser, 0, false, null, 0, null);
                 evaluated.add(candidate);
                 continue;

@@ -11,10 +11,15 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.ella.backend.enums.TransactionScope;
 import com.ella.backend.enums.TransactionType;
 
 public class SantanderInvoiceParser implements InvoiceParserStrategy {
+
+    private static final Logger log = LoggerFactory.getLogger(SantanderInvoiceParser.class);
 
     private static final Pattern ITAU_STRONG_MARKERS = Pattern.compile(
         "(?is)\\b(itau|ita[uú]|itaucard|itau\\s+unibanco|banco\\s+itau|itau\\s+personalite|itau\\s+personnalite|itau\\s+uniclass|itau\\s+cares)\\b"
@@ -28,7 +33,16 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
             + "|total\\s+dos\\s+lanamentos\\s+atuais"
             + "|pagamentos\\s+efetuados"
             + "|resumo\\s+da\\s+fatura\\s+em\\s+r\\$"
-            + "|compras\\s+parceladas"
+            + "|compras\\s+parceladas\\s*-\\s*pr[oó]ximas\\s+faturas"
+    );
+
+    private static final Pattern SANTANDER_LAYOUT_HINTS = Pattern.compile(
+        "(?is)"
+            + "detalhamento\\s+da\\s+fatura"
+            + "|pagamento\\s+e\\s+demais\\s+cr[eé]ditos"
+            + "|saldo\\s+desta\\s+fatura"
+            + "|hist[oó]rico\\s+de\\s+faturas"
+            + "|parcelamentos\\s+compra\\s+data\\s+descri"
     );
 
     // Ex.: Total a Pagar R$ 44.815,95 Vencimento 20/12/2025
@@ -76,15 +90,23 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
         // If we see strong Itaú markers, do not classify as Santander.
         boolean hasStrongItauMarkers = ITAU_STRONG_MARKERS.matcher(n).find();
         boolean hasItauSectionAnchors = ITAU_LAYOUT_ANCHORS.matcher(n).find();
-
         // Even if "banco itau" is missing from extracted text, these anchors are characteristic enough.
-        if (hasStrongItauMarkers || hasItauSectionAnchors) return false;
+        if (hasStrongItauMarkers || hasItauSectionAnchors) {
+            if (log.isDebugEnabled()) {
+                log.debug("[SantanderParser] Guardrail reject: strongItauMarkers={} itauSectionAnchors={}",
+                        hasStrongItauMarkers, hasItauSectionAnchors);
+            }
+            return false;
+        }
 
         boolean hasSantander = n.contains("santander");
         boolean hasDue = DUE_DATE_PATTERN.matcher(normalizedText).find() || HEADER_TOTAL_AND_DUE_PATTERN.matcher(normalizedText).find();
+        boolean hasSantanderLayoutHints = SANTANDER_LAYOUT_HINTS.matcher(n).find();
         boolean hasTotalToPay = n.contains("total a pagar");
-        // Avoid false-positives: holder-like blocks can appear in other banks.
-        return hasDue && (hasSantander || hasTotalToPay);
+
+        // Avoid false-positives from generic "total a pagar" only.
+        // Accept when there is explicit Santander brand OR clear Santander layout markers.
+        return hasDue && (hasSantander || hasSantanderLayoutHints) && (hasSantander || hasTotalToPay);
     }
 
     @Override
@@ -94,7 +116,13 @@ public class SantanderInvoiceParser implements InvoiceParserStrategy {
         // If this looks like Itaú/Personalité, do not even try to extract due date here.
         // Selector calls extractDueDate even when isApplicable() is false; this prevents Santander from scoring on Itaú PDFs.
         String n = normalizeForSearch(text);
-        if (ITAU_STRONG_MARKERS.matcher(n).find() || ITAU_LAYOUT_ANCHORS.matcher(n).find()) {
+        boolean hasStrongItauMarkers = ITAU_STRONG_MARKERS.matcher(n).find();
+        boolean hasItauSectionAnchors = ITAU_LAYOUT_ANCHORS.matcher(n).find();
+        if (hasStrongItauMarkers || hasItauSectionAnchors) {
+            if (log.isDebugEnabled()) {
+            log.debug("[SantanderParser] extractDueDate skipped by guardrail: strongItauMarkers={} itauSectionAnchors={}",
+                hasStrongItauMarkers, hasItauSectionAnchors);
+            }
             return null;
         }
 
