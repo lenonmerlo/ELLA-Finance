@@ -390,6 +390,17 @@ public class InvoiceUploadService {
             return tx.cardName.toLowerCase().contains("santander");
         });
 
+        boolean isSicrediInvoice = transactions != null && transactions.stream().anyMatch(tx -> {
+            if (tx == null || tx.cardName == null) return false;
+            return tx.cardName.toLowerCase().contains("sicredi");
+        });
+
+        boolean isC6Invoice = transactions != null && transactions.stream().anyMatch(tx -> {
+            if (tx == null || tx.cardName == null) return false;
+            String n = tx.cardName.toLowerCase();
+            return n.contains("c6") || n.contains("carbon");
+        });
+
         if (transactions == null || transactions.isEmpty()) {
             return InvoiceUploadResponseDTO.builder()
                 .invoiceId(null)
@@ -418,7 +429,7 @@ public class InvoiceUploadService {
 
                  LocalDate resolvedInvoiceDueDate = invoiceDueDate;
 
-                 String invoiceKey = buildInvoiceCacheKey(card, resolvedInvoiceDueDate);
+                 String invoiceKey = buildInvoiceKeyForUpload(user, card, resolvedInvoiceDueDate, isSantanderInvoice, isSicrediInvoice, isC6Invoice);
                  Invoice invoice = invoiceCache.computeIfAbsent(invoiceKey, k -> getOrCreateInvoice(card, resolvedInvoiceDueDate));
                  lastInvoice = invoice;
 
@@ -449,6 +460,17 @@ public class InvoiceUploadService {
         }
 
         flushUploadBatch(txBatch, installmentBatch, responseTransactions);
+
+        BigDecimal parsedInvoiceTotal = parseResult != null ? parseResult.getTotalAmount() : null;
+        if (parsedInvoiceTotal != null
+                && parsedInvoiceTotal.compareTo(BigDecimal.ZERO) > 0
+                && invoiceCache.size() == 1) {
+            Invoice onlyInvoice = invoiceCache.values().iterator().next();
+            onlyInvoice.setTotalAmount(parsedInvoiceTotal);
+            invoiceRepository.save(onlyInvoice);
+            lastInvoice = onlyInvoice;
+            totalAmount = parsedInvoiceTotal;
+        }
         
         LocalDate startDate = transactions.stream().map(t -> t.date).min(LocalDate::compareTo).orElse(null);
         LocalDate endDate = transactions.stream().map(t -> t.date).max(LocalDate::compareTo).orElse(null);
@@ -677,6 +699,31 @@ public class InvoiceUploadService {
         LocalDate resolved = invoiceDueDate != null ? invoiceDueDate : LocalDate.now();
         String cardId = card != null && card.getId() != null ? card.getId().toString() : "unknown-card";
         return (cardId + "|" + resolved.getYear() + "-" + resolved.getMonthValue()).toLowerCase();
+    }
+
+    private String buildInvoiceKeyForUpload(User user,
+                                            CreditCard card,
+                                            LocalDate invoiceDueDate,
+                                            boolean isSantanderInvoice,
+                                            boolean isSicrediInvoice,
+                                            boolean isC6Invoice) {
+        if (isSantanderInvoice) {
+            return buildBankInvoiceCacheKey(user, invoiceDueDate, "santander");
+        }
+        if (isSicrediInvoice) {
+            return buildBankInvoiceCacheKey(user, invoiceDueDate, "sicredi");
+        }
+        if (isC6Invoice) {
+            return buildBankInvoiceCacheKey(user, invoiceDueDate, "c6");
+        }
+        return buildInvoiceCacheKey(card, invoiceDueDate);
+    }
+
+    private String buildBankInvoiceCacheKey(User user, LocalDate invoiceDueDate, String bankKey) {
+        LocalDate resolved = invoiceDueDate != null ? invoiceDueDate : LocalDate.now();
+        String userId = (user != null && user.getId() != null) ? user.getId().toString() : "unknown-user";
+        String bank = (bankKey != null && !bankKey.isBlank()) ? bankKey.trim().toLowerCase() : "bank";
+        return (bank + "|" + userId + "|" + resolved.getYear() + "-" + resolved.getMonthValue()).toLowerCase();
     }
 
     private BigDecimal safe(BigDecimal value) {
