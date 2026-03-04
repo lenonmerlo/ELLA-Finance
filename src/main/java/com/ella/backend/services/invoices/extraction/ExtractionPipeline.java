@@ -21,8 +21,10 @@ import org.springframework.stereotype.Service;
 
 import com.ella.backend.config.QualityScoreConfig;
 import com.ella.backend.services.invoices.InvoiceParsingException;
+import com.ella.backend.services.invoices.parsers.BancoDoBrasilExtractorParser;
 import com.ella.backend.services.invoices.parsers.BancoDoBrasilInvoiceParser;
 import com.ella.backend.services.invoices.parsers.BradescoInvoiceParser;
+import com.ella.backend.services.invoices.parsers.C6ExtractorParser;
 import com.ella.backend.services.invoices.parsers.C6InvoiceParser;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.InvoiceParserSelector;
@@ -32,6 +34,7 @@ import com.ella.backend.services.invoices.parsers.ItauLatamPassInvoiceParser;
 import com.ella.backend.services.invoices.parsers.NubankInvoiceParser;
 import com.ella.backend.services.invoices.parsers.ParseResult;
 import com.ella.backend.services.invoices.parsers.PdfAwareInvoiceParser;
+import com.ella.backend.services.invoices.parsers.SantanderExtractorParser;
 import com.ella.backend.services.invoices.parsers.SantanderInvoiceParser;
 import com.ella.backend.services.invoices.parsers.TransactionData;
 import com.ella.backend.services.invoices.quality.ParseQualityEvaluator;
@@ -130,9 +133,12 @@ public class ExtractionPipeline {
             }
             boolean skipOcrForItauC6NubankBbSantander = baselineParser instanceof ItauInvoiceParser
                     || baselineParser instanceof C6InvoiceParser
+                    || baselineParser instanceof C6ExtractorParser
                     || baselineParser instanceof NubankInvoiceParser
                     || baselineParser instanceof BancoDoBrasilInvoiceParser
+                    || baselineParser instanceof BancoDoBrasilExtractorParser
                     || baselineParser instanceof BradescoInvoiceParser
+                    || baselineParser instanceof SantanderExtractorParser
                     || baselineParser instanceof SantanderInvoiceParser
                     || baselineParser instanceof ItauLatamPassInvoiceParser;
 
@@ -522,34 +528,117 @@ public class ExtractionPipeline {
         if (text == null || text.isBlank()) return null;
 
         String normalized = text.replace('\u00A0', ' ');
+        String[] lines = normalized.split("\\r?\\n");
 
-        List<Pattern> patterns = List.of(
-            // Bradesco fatura mensal: for expense-only extraction validation, compare against
-            // "Compras/Débitos" from "Resumo da fatura" (not the grand "Total da fatura").
-            Pattern.compile("(?is)\\(\\+\\)\\s*compras\\s*/\\s*d[eé]bitos\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
+        Pattern brlMoneyStrict = Pattern.compile("(?i)(?:R\\$\\s*)?((?:[0-9]{1,3}(?:\\.[0-9]{3})+|[0-9]+),[0-9]{2})");
 
-            // Itaú: o PDF costuma ter "Total da fatura anterior" + "Total desta fatura".
-            // Precisamos priorizar a fatura atual e NÃO capturar a anterior.
-            Pattern.compile("(?is)\\btotal\\s+desta\\s+fatura\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
-            Pattern.compile("(?is)\\blan[cç]amentos\\s+atuais\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
-            Pattern.compile("(?is)\\btotal\\s+dos\\s+lan[cç]amentos\\s+atuais\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
+        List<BigDecimal> highPriorityCandidates = new ArrayList<>();
+        List<BigDecimal> mediumPriorityCandidates = new ArrayList<>();
 
-            // Genérico (todos os bancos): NÃO capturar "fatura anterior".
-            Pattern.compile("(?is)\\btotal\\s+(?:da\\s+)?fatura\\b(?!\\s*anterior)[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
-                Pattern.compile("(?is)\\btotal\\s+a\\s+pagar\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])"),
-                Pattern.compile("(?is)\\bvalor\\s+total\\b[^0-9]{0,25}R?\\$?\\s*([0-9][0-9\\s\\.,]{0,25}[0-9])")
-        );
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i] == null ? "" : lines[i].trim();
+            if (line.isEmpty()) continue;
 
-        for (Pattern p : patterns) {
-            Matcher m = p.matcher(normalized);
-            if (!m.find()) continue;
-            BigDecimal v = parseBrlAmountLoose(m.group(1));
-            if (v != null && v.compareTo(BigDecimal.ZERO) > 0) {
-                return v;
+            String nLine = line.toLowerCase(java.util.Locale.ROOT);
+
+            boolean isHighPriorityLabel = nLine.contains("valor da fatura")
+                    || nLine.contains("total da fatura")
+                    || nLine.contains("total fatura")
+                    || nLine.contains("total desta fatura")
+                    || nLine.contains("chegou no valor")
+                    || nLine.contains("lancamentos atuais")
+                    || nLine.contains("lançamentos atuais")
+                    || nLine.contains("total dos lancamentos atuais")
+                    || nLine.contains("total dos lançamentos atuais")
+                    || nLine.matches(".*\\(\\+\\)\\s*compras\\s*/\\s*d[eé]bitos.*");
+
+            boolean isTotalAPagar = nLine.contains("total a pagar");
+
+            if (!isHighPriorityLabel && !isTotalAPagar) {
+                continue;
+            }
+
+            if (nLine.contains("fatura anterior")) {
+                continue;
+            }
+
+            boolean parcelamentoContext = hasParcelamentoContext(lines, i);
+
+            BigDecimal contextualValue = extractFirstMoneyFromWindow(lines, i, brlMoneyStrict);
+            if (contextualValue == null) continue;
+
+            if (isHighPriorityLabel) {
+                highPriorityCandidates.add(contextualValue);
+            } else if (isTotalAPagar && !parcelamentoContext) {
+                mediumPriorityCandidates.add(contextualValue);
+            }
+        }
+
+        BigDecimal high = pickMostFrequent(highPriorityCandidates);
+        if (high != null) return high;
+
+        BigDecimal medium = pickMostFrequent(mediumPriorityCandidates);
+        if (medium != null) return medium;
+
+        return null;
+    }
+
+    private static boolean hasParcelamentoContext(String[] lines, int index) {
+        if (lines == null || lines.length == 0) return false;
+        int from = Math.max(0, index - 1);
+        int to = Math.min(lines.length - 1, index + 2);
+        StringBuilder sb = new StringBuilder();
+        for (int i = from; i <= to; i++) {
+            if (lines[i] == null) continue;
+            sb.append(lines[i]).append(' ');
+        }
+        String ctx = sb.toString().toLowerCase(java.util.Locale.ROOT);
+        return ctx.contains("parcelamento") || ctx.contains("simula") || ctx.contains("entrada +");
+    }
+
+    private static BigDecimal extractFirstMoneyFromWindow(String[] lines, int index, Pattern moneyPattern) {
+        int from = Math.max(0, index);
+        int to = Math.min(lines.length - 1, index + 4);
+
+        for (int i = from; i <= to; i++) {
+            String line = lines[i] == null ? "" : lines[i];
+            Matcher matcher = moneyPattern.matcher(line);
+            while (matcher.find()) {
+                BigDecimal v = parseBrlAmountLoose(matcher.group(1));
+                if (v != null && v.compareTo(BigDecimal.ZERO) > 0) {
+                    return v;
+                }
             }
         }
 
         return null;
+    }
+
+    private static BigDecimal pickMostFrequent(List<BigDecimal> values) {
+        if (values == null || values.isEmpty()) return null;
+
+        java.util.Map<BigDecimal, Integer> frequency = new java.util.HashMap<>();
+        for (BigDecimal v : values) {
+            if (v == null) continue;
+            frequency.merge(v, 1, Integer::sum);
+        }
+
+        BigDecimal chosen = null;
+        int maxCount = -1;
+        for (java.util.Map.Entry<BigDecimal, Integer> entry : frequency.entrySet()) {
+            BigDecimal value = entry.getKey();
+            int count = entry.getValue();
+            if (count > maxCount) {
+                maxCount = count;
+                chosen = value;
+                continue;
+            }
+            if (count == maxCount && chosen != null && value.compareTo(chosen) > 0) {
+                chosen = value;
+            }
+        }
+
+        return chosen;
     }
 
     private static BigDecimal parseBrlAmountLoose(String raw) {
@@ -914,7 +1003,7 @@ public class ExtractionPipeline {
 
         BigDecimal totalAmount = extractInvoiceExpectedTotal(t);
         if (totalAmount == null || totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            if (parser instanceof SantanderInvoiceParser) {
+            if (parser instanceof SantanderInvoiceParser || parser instanceof SantanderExtractorParser) {
                 totalAmount = sumNetAmounts(transactions);
             } else {
                 totalAmount = sumExpenseAmounts(transactions);
