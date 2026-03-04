@@ -245,4 +245,5 @@ class SantanderInvoiceParserTest {
         assertEquals(1, txs.size());
         assertEquals("RESTAURANTE VEGETARIA", txs.get(0).description);
     }
+
 }
