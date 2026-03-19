@@ -366,6 +366,7 @@ public class FinancialReportService {
         out.put("variableFixedCost", b.getVariableFixedCost());
         out.put("investment", b.getInvestment());
         out.put("plannedPurchase", b.getPlannedPurchase());
+        out.put("debt", b.getDebt());
         out.put("protection", b.getProtection());
         out.put("total", b.getTotal());
         out.put("balance", b.getBalance());
