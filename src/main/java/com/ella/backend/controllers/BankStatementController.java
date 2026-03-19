@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.ella.backend.dto.ApiResponse;
@@ -48,12 +49,20 @@ public class BankStatementController {
                 case "C6" -> bankStatementUploadService.uploadC6Pdf(file, principal.getId());
                 case "NUBANK", "NU" -> bankStatementUploadService.uploadNubankPdf(file, principal.getId());
                 case "BRADESCO", "BRAD" -> bankStatementUploadService.uploadBradescoPdf(file, principal.getId());
+                case "BB", "BANCO_DO_BRASIL", "BANCO DO BRASIL" ->
+                    bankStatementUploadService.uploadBancoDoBrasilPdf(file, principal.getId());
                 default -> throw new IllegalArgumentException("Banco não suportado para extrato: " + bankNormalized);
             };
 
             return ResponseEntity.status(201).body(ApiResponse.success(payload, "Extrato enviado com sucesso"));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(ApiResponse.error(e.getMessage()));
+        } catch (ResourceAccessException e) {
+            log.error("Extractor indisponível durante upload de extrato bancário", e);
+            return ResponseEntity.status(503).body(ApiResponse.error(
+                    "Serviço de extração indisponível no momento. "
+                            + "Verifique se o extractor está em execução e tente novamente."
+            ));
         } catch (Exception e) {
             log.error("Erro ao processar upload de extrato bancário", e);
             return ResponseEntity.status(500).body(ApiResponse.error("Erro interno no servidor: " + e.getMessage()));
