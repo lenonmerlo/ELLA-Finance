@@ -55,8 +55,9 @@ class BudgetServiceTest {
                 "1000",
                 "2000",
                 "1500",
+            "500",
                 "500",
-                "500"
+            "0"
         );
 
         when(budgetRepository.save(any(Budget.class))).thenAnswer(inv -> {
@@ -95,6 +96,7 @@ class BudgetServiceTest {
                 "0",
                 "0",
                 "0",
+            "0",
                 "0",
                 "0"
         );
@@ -119,6 +121,7 @@ class BudgetServiceTest {
                 .variableFixedCost(new BigDecimal("2000.00"))
                 .investment(new BigDecimal("1500.00"))
                 .plannedPurchase(new BigDecimal("500.00"))
+                .debt(new BigDecimal("500.00"))
                 .protection(new BigDecimal("500.00"))
                 .total(new BigDecimal("8500.00"))
                 .balance(new BigDecimal("1500.00"))
@@ -136,8 +139,9 @@ class BudgetServiceTest {
                 "1000",
                 "3000",
                 "1500",
+            "500",
                 "500",
-                "500"
+            "0"
         );
 
         BudgetResponse resp = budgetService.updateBudget(budgetId.toString(), req);
@@ -165,6 +169,7 @@ class BudgetServiceTest {
                 .variableFixedCost(new BigDecimal("2000.00"))
                 .investment(new BigDecimal("500.00"))
                 .plannedPurchase(new BigDecimal("0.00"))
+                .debt(new BigDecimal("0.00"))
                 .protection(new BigDecimal("0.00"))
                 .total(new BigDecimal("8500.00"))
                 .balance(new BigDecimal("1500.00"))
@@ -191,6 +196,7 @@ class BudgetServiceTest {
             String variable,
             String investment,
             String plannedPurchase,
+                String debt,
             String protection
     ) {
         BudgetRequest req = new BudgetRequest();
@@ -200,6 +206,7 @@ class BudgetServiceTest {
         req.setVariableFixedCost(new BigDecimal(variable));
         req.setInvestment(new BigDecimal(investment));
         req.setPlannedPurchase(new BigDecimal(plannedPurchase));
+        req.setDebt(new BigDecimal(debt));
         req.setProtection(new BigDecimal(protection));
         return req;
     }

@@ -100,6 +100,7 @@ public class BudgetService {
         requireNonNegative(request.getVariableFixedCost(), "Custo Fixo Variável");
         requireNonNegative(request.getInvestment(), "Investimento");
         requireNonNegative(request.getPlannedPurchase(), "Compra Planejada");
+        requireNonNegative(request.getDebt(), "Dívidas");
         requireNonNegative(request.getProtection(), "Proteção");
     }
 
@@ -115,6 +116,7 @@ public class BudgetService {
         budget.setVariableFixedCost(money(request.getVariableFixedCost()));
         budget.setInvestment(money(request.getInvestment()));
         budget.setPlannedPurchase(money(request.getPlannedPurchase()));
+        budget.setDebt(money(request.getDebt()));
         budget.setProtection(money(request.getProtection()));
     }
 
@@ -129,6 +131,7 @@ public class BudgetService {
                 .add(budget.getVariableFixedCost())
                 .add(budget.getInvestment())
                 .add(budget.getPlannedPurchase())
+                .add(budget.getDebt())
                 .add(budget.getProtection())
                 .setScale(MONEY_SCALE, RoundingMode.HALF_UP);
 
@@ -148,7 +151,10 @@ public class BudgetService {
 
         BigDecimal necessities = budget.getEssentialFixedCost().add(budget.getNecessaryFixedCost());
         BigDecimal desires = budget.getVariableFixedCost();
-        BigDecimal investments = budget.getInvestment().add(budget.getPlannedPurchase()).add(budget.getProtection());
+        BigDecimal investments = budget.getInvestment()
+            .add(budget.getPlannedPurchase())
+            .add(budget.getDebt())
+            .add(budget.getProtection());
 
         budget.setNecessitiesPercentage(percentageOf(necessities, income));
         budget.setDesiresPercentage(percentageOf(desires, income));
@@ -199,6 +205,7 @@ public class BudgetService {
         response.setVariableFixedCost(budget.getVariableFixedCost());
         response.setInvestment(budget.getInvestment());
         response.setPlannedPurchase(budget.getPlannedPurchase());
+        response.setDebt(budget.getDebt());
         response.setProtection(budget.getProtection());
 
         response.setTotal(budget.getTotal());

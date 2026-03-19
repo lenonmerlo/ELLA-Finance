@@ -64,6 +64,9 @@ public class Budget {
     @Column(name = "planned_purchase", nullable = false, precision = 19, scale = 2)
     private BigDecimal plannedPurchase;
 
+        @Column(nullable = false, precision = 19, scale = 2)
+        private BigDecimal debt;
+
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal protection;
 

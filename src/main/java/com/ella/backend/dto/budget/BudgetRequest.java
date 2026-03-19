@@ -26,6 +26,9 @@ public class BudgetRequest {
     @NotNull(message = "Compra Planejada é obrigatória")
     private BigDecimal plannedPurchase;
 
+    @NotNull(message = "Dívidas são obrigatórias")
+    private BigDecimal debt;
+
     @NotNull(message = "Proteção é obrigatória")
     private BigDecimal protection;
 }

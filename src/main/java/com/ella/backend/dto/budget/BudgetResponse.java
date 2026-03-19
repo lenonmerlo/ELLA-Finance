@@ -17,6 +17,7 @@ public class BudgetResponse {
     private BigDecimal variableFixedCost;
     private BigDecimal investment;
     private BigDecimal plannedPurchase;
+    private BigDecimal debt;
     private BigDecimal protection;
 
     // Calculados
