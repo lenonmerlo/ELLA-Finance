@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 
 import com.ella.backend.config.QualityScoreConfig;
 import com.ella.backend.services.invoices.InvoiceParsingException;
+import com.ella.backend.services.invoices.extraction.core.ReconciliationPolicy;
+import com.ella.backend.services.invoices.extraction.core.TotalResolver;
 import com.ella.backend.services.invoices.parsers.BancoDoBrasilExtractorParser;
 import com.ella.backend.services.invoices.parsers.BancoDoBrasilInvoiceParser;
 import com.ella.backend.services.invoices.parsers.BradescoInvoiceParser;
@@ -65,6 +67,7 @@ public class ExtractionPipeline {
     private final ParseQualityEvaluator parseQualityEvaluator;
     private final QualityScoreConfig qualityScoreConfig;
     private final ParseQualityValidator parseQualityValidator;
+    private final ParserParent parserParent;
 
     private final AdobeExtractor adobeExtractor;
     private final AdobeFallbackStrategy adobeFallbackStrategy;
@@ -404,66 +407,11 @@ public class ExtractionPipeline {
     }
 
     static boolean shouldRetryWithOcrForQuality(List<TransactionData> transactions) {
-        if (transactions == null || transactions.isEmpty()) return false;
-
-        int total = 0;
-        int garbled = 0;
-        int missingDate = 0;
-
-        for (TransactionData tx : transactions) {
-            if (tx == null) continue;
-            total++;
-            if (tx.date == null) missingDate++;
-            if (isLikelyGarbledMerchant(tx.description)) garbled++;
-        }
-
-        if (total == 0) return false;
-
-        boolean anyGarbledDescs = garbled >= 1;
-        boolean manyMissingDates = missingDate >= Math.max(2, (int) Math.ceil(total * 0.5));
-        boolean trigger = manyMissingDates || anyGarbledDescs;
-
-        if (trigger) {
-            StringBuilder sample = new StringBuilder();
-            int shown = 0;
-            for (TransactionData tx : transactions) {
-                if (tx == null) continue;
-                if (!isLikelyGarbledMerchant(tx.description) && tx.date != null) continue;
-                if (shown >= 3) break;
-                String desc = tx.description == null ? "" : tx.description;
-                if (desc.length() > 60) desc = desc.substring(0, 60) + "...";
-                sample.append('[').append(tx.date).append(']').append(desc).append(' ');
-                shown++;
-            }
-            STATIC_LOG.info("[OCR] Quality trigger: total={} garbled={} missingDate={} samples={}", total, garbled, missingDate, sample.toString().trim());
-        }
-
-        return trigger;
+        return ReconciliationPolicy.shouldRetryWithOcrForQuality(transactions);
     }
 
-    private static final BigDecimal MISSING_TX_RATIO_THRESHOLD = new BigDecimal("0.96");
-
     static boolean shouldRetryDueToMissingTransactions(List<TransactionData> transactions, String text) {
-        if (transactions == null || transactions.isEmpty()) return false;
-
-        BigDecimal expectedTotal = extractInvoiceExpectedTotal(text);
-        if (expectedTotal == null || expectedTotal.compareTo(BigDecimal.ZERO) <= 0) {
-            return false;
-        }
-
-        BigDecimal totalExtracted = sumExpenseAmounts(transactions);
-        if (totalExtracted.compareTo(BigDecimal.ZERO) <= 0) return false;
-
-        BigDecimal threshold = expectedTotal.multiply(MISSING_TX_RATIO_THRESHOLD);
-        boolean trigger = totalExtracted.compareTo(threshold) < 0;
-
-        BigDecimal pct = totalExtracted.multiply(BigDecimal.valueOf(100))
-            .divide(expectedTotal, 2, java.math.RoundingMode.HALF_UP);
-        STATIC_LOG.info(
-            "[InvoiceUpload][OCR] Total check: txCount={} extracted={} expected={} threshold={} ({}% of expected) trigger={}",
-            transactions.size(), totalExtracted, expectedTotal, threshold, pct, trigger);
-
-        return trigger;
+        return ReconciliationPolicy.shouldRetryDueToMissingTransactions(transactions, text);
     }
 
     private static boolean isOcrResultBetterForMissingTransactions(
@@ -471,31 +419,11 @@ public class ExtractionPipeline {
             List<TransactionData> originalTransactions,
             BigDecimal expectedTotal
     ) {
-        if (expectedTotal == null || expectedTotal.compareTo(BigDecimal.ZERO) <= 0) return false;
-
-        BigDecimal origTotal = sumExpenseAmounts(originalTransactions);
-        BigDecimal ocrTotal = sumExpenseAmounts(ocrTransactions);
-
-        BigDecimal origDiff = expectedTotal.subtract(origTotal).abs();
-        BigDecimal ocrDiff = expectedTotal.subtract(ocrTotal).abs();
-
-        int origCount = originalTransactions == null ? 0 : originalTransactions.size();
-        int ocrCount = ocrTransactions == null ? 0 : ocrTransactions.size();
-
-        boolean better = false;
-
-        if (ocrCount >= origCount && ocrDiff.compareTo(origDiff) < 0) {
-            better = true;
-        }
-
-        if (!better && ocrCount > origCount && ocrDiff.compareTo(origDiff) <= 0) {
-            better = true;
-        }
-
-        STATIC_LOG.info("[InvoiceUpload][OCR] OCR retry evaluated: txCount {} -> {} | extracted {} -> {} | diffToExpected {} -> {} | accepted={} ",
-                origCount, ocrCount, origTotal, ocrTotal, origDiff, ocrDiff, better);
-
-        return better;
+        return ReconciliationPolicy.isOcrResultBetterForMissingTransactions(
+                ocrTransactions,
+                originalTransactions,
+                expectedTotal
+        );
     }
 
     private static BigDecimal sumExpenseAmounts(List<TransactionData> transactions) {
@@ -525,230 +453,15 @@ public class ExtractionPipeline {
     }
 
     private static BigDecimal extractInvoiceExpectedTotal(String text) {
-        if (text == null || text.isBlank()) return null;
-
-        String normalized = text.replace('\u00A0', ' ');
-        String[] lines = normalized.split("\\r?\\n");
-
-        Pattern brlMoneyStrict = Pattern.compile("(?i)(?:R\\$\\s*)?((?:[0-9]{1,3}(?:\\.[0-9]{3})+|[0-9]+),[0-9]{2})");
-
-        List<BigDecimal> highPriorityCandidates = new ArrayList<>();
-        List<BigDecimal> mediumPriorityCandidates = new ArrayList<>();
-
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i] == null ? "" : lines[i].trim();
-            if (line.isEmpty()) continue;
-
-            String nLine = line.toLowerCase(java.util.Locale.ROOT);
-
-            boolean isHighPriorityLabel = nLine.contains("valor da fatura")
-                    || nLine.contains("total da fatura")
-                    || nLine.contains("total fatura")
-                    || nLine.contains("total desta fatura")
-                    || nLine.contains("chegou no valor")
-                    || nLine.contains("lancamentos atuais")
-                    || nLine.contains("lançamentos atuais")
-                    || nLine.contains("total dos lancamentos atuais")
-                    || nLine.contains("total dos lançamentos atuais")
-                    || nLine.matches(".*\\(\\+\\)\\s*compras\\s*/\\s*d[eé]bitos.*");
-
-            boolean isTotalAPagar = nLine.contains("total a pagar");
-
-            if (!isHighPriorityLabel && !isTotalAPagar) {
-                continue;
-            }
-
-            if (nLine.contains("fatura anterior")) {
-                continue;
-            }
-
-            boolean parcelamentoContext = hasParcelamentoContext(lines, i);
-
-            BigDecimal contextualValue = extractFirstMoneyFromWindow(lines, i, brlMoneyStrict);
-            if (contextualValue == null) continue;
-
-            if (isHighPriorityLabel) {
-                highPriorityCandidates.add(contextualValue);
-            } else if (isTotalAPagar && !parcelamentoContext) {
-                mediumPriorityCandidates.add(contextualValue);
-            }
-        }
-
-        BigDecimal high = pickMostFrequent(highPriorityCandidates);
-        if (high != null) return high;
-
-        BigDecimal medium = pickMostFrequent(mediumPriorityCandidates);
-        if (medium != null) return medium;
-
-        return null;
-    }
-
-    private static boolean hasParcelamentoContext(String[] lines, int index) {
-        if (lines == null || lines.length == 0) return false;
-        int from = Math.max(0, index - 1);
-        int to = Math.min(lines.length - 1, index + 2);
-        StringBuilder sb = new StringBuilder();
-        for (int i = from; i <= to; i++) {
-            if (lines[i] == null) continue;
-            sb.append(lines[i]).append(' ');
-        }
-        String ctx = sb.toString().toLowerCase(java.util.Locale.ROOT);
-        return ctx.contains("parcelamento") || ctx.contains("simula") || ctx.contains("entrada +");
-    }
-
-    private static BigDecimal extractFirstMoneyFromWindow(String[] lines, int index, Pattern moneyPattern) {
-        int from = Math.max(0, index);
-        int to = Math.min(lines.length - 1, index + 4);
-
-        for (int i = from; i <= to; i++) {
-            String line = lines[i] == null ? "" : lines[i];
-            Matcher matcher = moneyPattern.matcher(line);
-            while (matcher.find()) {
-                BigDecimal v = parseBrlAmountLoose(matcher.group(1));
-                if (v != null && v.compareTo(BigDecimal.ZERO) > 0) {
-                    return v;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static BigDecimal pickMostFrequent(List<BigDecimal> values) {
-        if (values == null || values.isEmpty()) return null;
-
-        java.util.Map<BigDecimal, Integer> frequency = new java.util.HashMap<>();
-        for (BigDecimal v : values) {
-            if (v == null) continue;
-            frequency.merge(v, 1, Integer::sum);
-        }
-
-        BigDecimal chosen = null;
-        int maxCount = -1;
-        for (java.util.Map.Entry<BigDecimal, Integer> entry : frequency.entrySet()) {
-            BigDecimal value = entry.getKey();
-            int count = entry.getValue();
-            if (count > maxCount) {
-                maxCount = count;
-                chosen = value;
-                continue;
-            }
-            if (count == maxCount && chosen != null && value.compareTo(chosen) > 0) {
-                chosen = value;
-            }
-        }
-
-        return chosen;
-    }
-
-    private static BigDecimal parseBrlAmountLoose(String raw) {
-        if (raw == null) return null;
-        String s = raw.trim().replace("R$", "").replace(" ", "");
-        s = s.replaceAll("[^0-9,\\.]", "");
-        if (s.isEmpty()) return null;
-
-        if (s.contains(",")) {
-            s = s.replace(".", "").replace(",", ".");
-        } else {
-            if (!s.matches("-?\\d+\\.\\d{2}")) {
-                s = s.replace(".", "");
-            }
-        }
-
-        try {
-            return new BigDecimal(s);
-        } catch (Exception e) {
-            return null;
-        }
+        return TotalResolver.extractInvoiceExpectedTotal(text);
     }
 
     static boolean isOcrResultBetter(List<TransactionData> ocrResult, List<TransactionData> original) {
-        int ocrScore = qualityScore(ocrResult);
-        int origScore = qualityScore(original);
-        return ocrScore > origScore;
-    }
-
-    private static int qualityScore(List<TransactionData> txs) {
-        if (txs == null || txs.isEmpty()) return 0;
-        int total = 0;
-        int garbled = 0;
-        int missingDate = 0;
-        for (TransactionData tx : txs) {
-            if (tx == null) continue;
-            total++;
-            if (tx.date == null) missingDate++;
-            if (isLikelyGarbledMerchant(tx.description)) garbled++;
-        }
-        if (total == 0) return 0;
-
-        int score = total * 1000;
-        score -= garbled * 250;
-        score -= missingDate * 250;
-        return score;
+        return ReconciliationPolicy.isOcrResultBetter(ocrResult, original);
     }
 
     static boolean isLikelyGarbledMerchant(String description) {
-        if (description == null) return false;
-        String d = description.trim();
-        if (d.isEmpty()) return false;
-
-        String upper = d.toUpperCase(java.util.Locale.ROOT);
-        if (upper.contains("UBER") || upper.contains("IFOOD") || upper.contains("PAGAMENTO") || upper.contains("ANUIDADE")) {
-            return false;
-        }
-
-        int letters = 0;
-        int digits = 0;
-        int vowels = 0;
-        int longAlnumTokens = 0;
-        int mixedLetterDigitTokens = 0;
-
-        for (String token : d.split("\\s+")) {
-            String t = token.replaceAll("[^A-Za-z0-9]", "");
-            if (t.length() < 8) continue;
-
-            boolean hasLetter = t.matches(".*[A-Za-z].*");
-            boolean hasDigit = t.matches(".*\\d.*");
-            if (t.length() >= 10 && t.matches("[A-Za-z0-9]+")) {
-                longAlnumTokens++;
-            }
-            if (t.length() >= 10 && hasLetter && hasDigit && countDigits(t) >= 2) {
-                mixedLetterDigitTokens++;
-            }
-        }
-
-        for (int i = 0; i < upper.length(); i++) {
-            char c = upper.charAt(i);
-            if (c >= 'A' && c <= 'Z') {
-                letters++;
-                if (c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U') vowels++;
-            } else if (c >= '0' && c <= '9') {
-                digits++;
-            }
-        }
-
-        if (mixedLetterDigitTokens >= 1) {
-            return true;
-        }
-
-        if (longAlnumTokens >= 1 && letters >= 8 && digits >= 2 && vowels <= 1) {
-            return true;
-        }
-        if (letters >= 12 && vowels == 0 && longAlnumTokens >= 2) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static int countDigits(String value) {
-        if (value == null || value.isEmpty()) return 0;
-        int count = 0;
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (c >= '0' && c <= '9') count++;
-        }
-        return count;
+        return ReconciliationPolicy.isLikelyGarbledMerchant(description);
     }
 
     private void logDebugConfigOnce(String reason) {
@@ -904,118 +617,13 @@ public class ExtractionPipeline {
     }
 
     private ParseResult parsePdfText(byte[] pdfBytes, String text, LocalDate dueDateFromRequest) {
-        String t = text == null ? "" : text;
-
-        // Safe removal: Mercado Pago invoices are intentionally not supported.
-        // Detect them early to avoid false parser selection (e.g., Banco do Brasil) and confusing errors.
-        if (looksLikeMercadoPagoInvoice(t)) {
-            throw new com.ella.backend.services.invoices.InvoiceParsingException(
-                    "Ainda não suportamos faturas do Mercado Pago. " +
-                            "Envie a fatura de outro banco/cartão ou tente novamente mais tarde."
-            );
-        }
-
-        InvoiceParserSelector.Selection selection = InvoiceParserSelector.selectBest(invoiceParserFactory.getParsers(), t);
-        InvoiceParserSelector.Candidate chosen = selection.chosen();
-        InvoiceParserStrategy parser = chosen.parser();
-
-        LocalDate dueDate = chosen.dueDate();
-        List<TransactionData> transactions = chosen.transactions();
-
-        if (parser instanceof PdfAwareInvoiceParser pdfAware) {
-            // Isolated branch: only for parsers that explicitly support PDF-aware parsing.
-            try {
-                ParseResult pdfParse = pdfAware.parseWithPdf(pdfBytes, t);
-                if (pdfParse != null && pdfParse.getDueDate() != null) {
-                    dueDate = pdfParse.getDueDate();
-                }
-                if (pdfParse != null && pdfParse.getTransactions() != null && !pdfParse.getTransactions().isEmpty()) {
-                    transactions = pdfParse.getTransactions();
-                }
-            } catch (Exception e) {
-                log.warn("[InvoiceUpload] Pdf-aware parse failed, falling back to text parser. reason={}", e.toString());
-            }
-        }
-        if (dueDate == null) {
-            log.warn("[InvoiceUpload] Parser={} matched but dueDate was not found by parser. Trying fallback extractor...",
-                    parser.getClass().getSimpleName());
-            dueDate = tryExtractDueDateFallback(t);
-        }
-
-        if (dueDate == null && dueDateFromRequest != null) {
-            log.warn("[InvoiceUpload] Using dueDate override from request: {}", dueDateFromRequest);
-            dueDate = dueDateFromRequest;
-        }
-        if (dueDate == null) {
-            throw new IllegalArgumentException(
-                    "Não foi possível determinar a data de vencimento da fatura. " +
-                            "O processamento foi interrompido para evitar lançamentos incorretos. " +
-                            "(parser=" + parser.getClass().getSimpleName() + ")"
-            );
-        }
-
-        transactions = transactions != null ? transactions : parser.extractTransactions(t);
-        for (TransactionData tx : transactions) {
-            if (tx == null) continue;
-            tx.setDueDate(dueDate);
-        }
-
-        if (parser instanceof ItauInvoiceParser && dueDate != null && transactions != null && !transactions.isEmpty()) {
-            int before = transactions.size();
-            int dropped = 0;
-            List<TransactionData> filtered = new ArrayList<>(transactions.size());
-            for (TransactionData tx : transactions) {
-                if (tx == null) {
-                    filtered.add(null);
-                    continue;
-                }
-                if (tx.type == com.ella.backend.enums.TransactionType.EXPENSE && tx.date != null && tx.date.isAfter(dueDate)) {
-                    dropped++;
-                    continue;
-                }
-                filtered.add(tx);
-            }
-            if (dropped > 0) {
-                log.info("[InvoiceUpload][Itau] Dropped {} EXPENSE rows after dueDate={} ({} -> {})", dropped, dueDate, before, before - dropped);
-            }
-            transactions = filtered;
-        }
-
-        int garbled = 0;
-        int missingDate = 0;
-        List<String> sample = new ArrayList<>();
-        for (TransactionData tx : transactions) {
-            if (tx == null) continue;
-            if (tx.date == null) missingDate++;
-            if (isLikelyGarbledMerchant(tx.description)) {
-                garbled++;
-                if (sample.size() < 3 && tx.description != null) {
-                    String s = tx.description.trim();
-                    sample.add(s.length() > 60 ? s.substring(0, 60) : s);
-                }
-            }
-        }
-
-        log.info("[InvoiceUpload] Using parser={} dueDate={} txCount={}",
-                parser.getClass().getSimpleName(), dueDate, transactions.size());
-        log.info("[InvoiceUpload] Parse quality: txCount={} garbled={} missingDate={} garbledSamples={}",
-                transactions.size(), garbled, missingDate, sample);
-
-        BigDecimal totalAmount = extractInvoiceExpectedTotal(t);
-        if (totalAmount == null || totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            if (parser instanceof SantanderInvoiceParser || parser instanceof SantanderExtractorParser) {
-                totalAmount = sumNetAmounts(transactions);
-            } else {
-                totalAmount = sumExpenseAmounts(transactions);
-            }
-        }
-
-        return ParseResult.builder()
-            .transactions(transactions)
-            .dueDate(dueDate)
-            .totalAmount(totalAmount)
-            .bankName(parser.getClass().getSimpleName())
-            .build();
+        return parserParent.parse(
+                pdfBytes,
+                text,
+                dueDateFromRequest,
+                this::tryExtractDueDateFallback,
+                ExtractionPipeline::looksLikeMercadoPagoInvoice
+        );
     }
 
     private static boolean looksLikeMercadoPagoInvoice(String text) {

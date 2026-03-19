@@ -15,6 +15,7 @@ import org.springframework.core.env.Environment;
 
 import com.ella.backend.config.QualityScoreConfig;
 import com.ella.backend.services.invoices.InvoiceParsingException;
+import com.ella.backend.services.invoices.extraction.core.InvoiceParsingCore;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.quality.ParseQualityEvaluator;
 import com.ella.backend.services.invoices.quality.ParseQualityValidator;
@@ -67,6 +68,7 @@ class ExtractionPipelineUnsupportedBankMessageTest {
         QualityScoreConfig qualityScoreConfig = new QualityScoreConfig();
         AdobeExtractor adobeExtractor = org.mockito.Mockito.mock(AdobeExtractor.class);
         AdobeFallbackStrategy strategy = new AdobeFallbackStrategy(qualityScoreConfig);
+        ParserParent parserParent = new InvoiceParsingCore(invoiceParserFactory);
 
         return new ExtractionPipeline(
                 invoiceParserFactory,
@@ -77,6 +79,7 @@ class ExtractionPipelineUnsupportedBankMessageTest {
                 evaluator,
                 qualityScoreConfig,
                 validator,
+                parserParent,
                 adobeExtractor,
                 strategy
         );

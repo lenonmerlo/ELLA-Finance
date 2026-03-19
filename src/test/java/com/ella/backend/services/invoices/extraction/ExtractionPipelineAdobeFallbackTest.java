@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.env.Environment;
 
 import com.ella.backend.config.QualityScoreConfig;
+import com.ella.backend.services.invoices.extraction.core.InvoiceParsingCore;
 import com.ella.backend.services.invoices.parsers.InvoiceParserFactory;
 import com.ella.backend.services.invoices.parsers.ParseResult;
 import com.ella.backend.services.invoices.quality.ParseQualityEvaluator;
@@ -95,6 +96,7 @@ class ExtractionPipelineAdobeFallbackTest {
         qualityScoreConfig.setMinScoreForHighQuality(75);
 
         AdobeFallbackStrategy strategy = new AdobeFallbackStrategy(qualityScoreConfig);
+        ParserParent parserParent = new InvoiceParsingCore(invoiceParserFactory);
 
         return new ExtractionPipeline(
                 invoiceParserFactory,
@@ -105,6 +107,7 @@ class ExtractionPipelineAdobeFallbackTest {
                 evaluator,
                 qualityScoreConfig,
                 validator,
+                parserParent,
                 adobeExtractor,
                 strategy
         );
